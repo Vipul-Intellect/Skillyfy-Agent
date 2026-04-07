@@ -14,7 +14,7 @@ from mcp.client.stdio import stdio_client
 
 from a2a.protocol import A2AMessage, A2AProtocol, a2a_protocol
 from config.settings import settings
-from database.firestore_client import save_progress
+from database.firestore_client import get_session, save_progress, save_session
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -395,7 +395,7 @@ and manage schedules. Prefer tool-grounded responses and keep outputs structured
         daily_time: int,
     ) -> dict:
         """Generate learning schedule."""
-        return self._run_on_loop(
+        result = self._run_on_loop(
             self._call_mcp_tool(
                 "generate_schedule",
                 {
@@ -407,28 +407,55 @@ and manage schedules. Prefer tool-grounded responses and keep outputs structured
                 },
             )
         )
+        if isinstance(result, dict) and not result.get("error"):
+            saved = save_session(session_id, {"schedule": result})
+            if not saved:
+                return {"error": "Failed to persist generated schedule"}
+        return result
 
     def get_schedule(self, session_id: str) -> dict:
         """Get current schedule."""
-        return self._run_on_loop(
-            self._call_mcp_tool(
-                "get_schedule",
-                {"session_id": session_id},
-            )
-        )
+        session_data = get_session(session_id)
+        if not session_data:
+            return {"error": "Session not found"}
+
+        schedule = session_data.get("schedule", {})
+        if not schedule:
+            return {"schedule_enabled": False}
+        return schedule
 
     def update_progress(self, session_id: str, day: int, completed: bool = True) -> dict:
         """Update schedule progress."""
-        return self._run_on_loop(
-            self._call_mcp_tool(
-                "update_schedule_progress",
-                {
-                    "session_id": session_id,
-                    "day": day,
-                    "completed": completed,
-                },
-            )
-        )
+        session_data = get_session(session_id)
+        if not session_data:
+            return {"error": "Session not found"}
+
+        schedule = session_data.get("schedule", {})
+        if not schedule:
+            return {"error": "No schedule found"}
+
+        for plan in schedule.get("daily_plan", []):
+            if plan.get("day") == day:
+                plan["completed"] = completed
+                break
+
+        completed_days = sum(1 for plan in schedule.get("daily_plan", []) if plan.get("completed"))
+        total_days = len(schedule.get("daily_plan", []))
+        progress = int((completed_days / total_days) * 100) if total_days > 0 else 0
+
+        schedule["progress_percentage"] = progress
+        schedule["current_day"] = min(day + 1 if completed else day, total_days or day)
+
+        saved = save_session(session_id, {"schedule": schedule})
+        if not saved:
+            return {"error": "Failed to persist schedule progress"}
+
+        return {
+            "day_completed": day,
+            "progress_percentage": progress,
+            "current_day": schedule["current_day"],
+            "total_days": total_days,
+        }
 
     # ================== PROGRESS TRACKING ==================
 
