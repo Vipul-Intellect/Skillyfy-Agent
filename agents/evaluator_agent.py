@@ -1,34 +1,32 @@
 """
-Evaluator Agent - Handles evaluation and job search
-SkillUp Agent - Google GenAI APAC 2026 Hackathon
-
-Uses MCP for tool calls, ADK for LLM, A2A for agent communication.
+Evaluator Agent - Handles learning evaluation, readiness scoring, and job discovery.
 """
+import asyncio
+import json
 import os
 import sys
-import json
-import traceback
+import threading
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+from google.adk.agents import LlmAgent
+from google.adk.runners import InMemoryRunner
+from google.adk.tools.mcp_tool import McpToolset, StdioConnectionParams
 from google import genai
 from google.genai import types
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from config import settings
+from a2a.protocol import A2AMessage, A2AProtocol, a2a_protocol
+from config.settings import settings
+from database.firestore_client import get_result
 from utils.logger import get_logger
-from database.firestore_client import FirestoreClient
-# A2A imports - uncomment when a2a folder exists
-# from a2a.protocol import A2AMessage, A2AProtocol, a2a_protocol
 
 logger = get_logger(__name__)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EVALUATOR_SERVER_PATH = os.path.join(PROJECT_ROOT, "tools", "mcp_tools", "evaluator_server.py")
 
 
 def _child_process_env() -> dict:
-    """Explicitly forward Cloud Run env vars to the MCP subprocess."""
     env = os.environ.copy()
     existing_path = env.get("PYTHONPATH", "").strip()
     env["PYTHONPATH"] = PROJECT_ROOT if not existing_path else f"{PROJECT_ROOT}{os.pathsep}{existing_path}"
@@ -38,192 +36,234 @@ def _child_process_env() -> dict:
 class EvaluatorAgent:
     """
     Evaluator Agent responsibilities:
-    1. Generate evaluation questions (5 questions)
-    2. Score user answers
-    3. Generate badge based on score
-    4. Fetch relevant jobs (RapidAPI JSearch - 10 jobs)
-    5. Save results to Firestore
+    - Generate evaluation packs
+    - Score learner answers and produce mastery/readiness results
+    - Fetch relevant jobs
+    - Expose evaluation results for later retrieval
     """
-    
+
     def __init__(self):
         self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
         self.model_id = "gemini-2.5-flash"
-        self.db = FirestoreClient()
-        
-        # MCP server path (absolute)
-        MCP_SERVER_PATH = os.path.join(PROJECT_ROOT, "tools", "mcp_tools", "evaluator_server.py")
+
         self.server_params = StdioServerParameters(
-            command="python",
-            args=[MCP_SERVER_PATH],
-            env=_child_process_env()
+            command=sys.executable,
+            args=[EVALUATOR_SERVER_PATH],
+            env=_child_process_env(),
         )
-        
-        # Register with A2A protocol
+
+        self.loop = asyncio.new_event_loop()
+        self._loop_lock = threading.Lock()
+        self._stdio_context = None
+        self._session_context = None
+        self.mcp_session = None
+        self.tools = []
+        self.adk_app_name = "skillup_evaluator"
+
+        self.adk_connection_params = StdioConnectionParams(
+            server_params=self.server_params,
+            timeout=float(settings.API_TIMEOUT),
+        )
+        self.adk_toolset = McpToolset(connection_params=self.adk_connection_params)
+        self.adk_agent = LlmAgent(
+            name="evaluator",
+            model=self.model_id,
+            description="SkillUp evaluator agent for assessments, readiness scoring, and jobs.",
+            instruction="""You are the SkillUp evaluator agent.
+
+Use the available MCP tools to generate evaluation questions, score learner answers,
+assess readiness, and fetch job recommendations. Prefer tool-grounded results and
+keep outputs structured and practical.""",
+            tools=[self.adk_toolset],
+            generate_content_config=types.GenerateContentConfig(
+                temperature=0.2,
+                top_p=0.9,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+            ),
+        )
+        self.adk_runner = InMemoryRunner(agent=self.adk_agent, app_name=self.adk_app_name)
+
         a2a_protocol.register_agent("evaluator", self)
-        logger.info("EvaluatorAgent initialized")
-    
-    async def handle_a2a_message(self, message: A2AMessage) -> dict:
-        """Handle incoming A2A messages"""
-        if message.message_type == A2AProtocol.REQUEST_EVALUATION:
-            return await self.generate_evaluation(
-                message.session_id,
-                message.payload.get('skill'),
-                message.payload.get('level')
-            )
-        elif message.message_type == A2AProtocol.FETCH_JOBS:
-            return await self.fetch_jobs(message.payload.get('skill'))
-        return {"error": "Unknown message type"}
-    
-    async def generate_evaluation(self, session_id: str, skill: str, level: str) -> dict:
-        """Generate 5 evaluation questions"""
+        logger.info("EvaluatorAgent initialized with ADK runtime and MCP")
+
+    async def _ensure_mcp_session(self):
+        if self.mcp_session is not None:
+            return self.mcp_session
+
+        self._stdio_context = stdio_client(self.server_params)
+        read, write = await self._stdio_context.__aenter__()
+        self._session_context = ClientSession(read, write)
+        self.mcp_session = await self._session_context.__aenter__()
+        await self.mcp_session.initialize()
+
+        tools_response = await self.mcp_session.list_tools()
+        self.tools = tools_response.tools
+        return self.mcp_session
+
+    async def _reset_mcp_session(self):
         try:
-            prompt = f"""Generate exactly 5 evaluation questions for {skill} at {level} level.
+            if self._session_context is not None:
+                await self._session_context.__aexit__(None, None, None)
+        except Exception:
+            pass
 
-Mix of:
-- 3 multiple choice questions (4 options each)
-- 2 short answer questions
+        try:
+            if self._stdio_context is not None:
+                await self._stdio_context.__aexit__(None, None, None)
+        except Exception:
+            pass
 
-Return JSON:
-{{
-    "questions": [
-        {{
-            "id": 1,
-            "type": "multiple_choice",
-            "question": "...",
-            "options": ["A", "B", "C", "D"],
-            "correct": "A",
-            "difficulty": "easy|medium|hard"
-        }},
-        {{
-            "id": 4,
-            "type": "short_answer",
-            "question": "...",
-            "expected_keywords": ["keyword1", "keyword2"],
-            "difficulty": "medium"
-        }}
-    ]
-}}"""
-            
-            response = self.client.models.generate_content(
-                model=self.model_id,
-                contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.3)
-            )
-            
-            text = response.text.strip()
-            if text.startswith("```"):
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-            
-            return json.loads(text)
+        self._session_context = None
+        self._stdio_context = None
+        self.mcp_session = None
+        self.tools = []
+
+    def _run_on_loop(self, coro):
+        with self._loop_lock:
+            return self.loop.run_until_complete(coro)
+
+    def warm_mcp(self):
+        try:
+            self._run_on_loop(self._ensure_mcp_session())
+            logger.info("Evaluator MCP session warmed")
+            return True
         except Exception as e:
-            logger.error(f"Evaluation generation error: {e}")
-            return {"error": str(e)}
-    
-    async def score_answers(self, session_id: str, skill: str, questions: list, answers: list) -> dict:
-        """Score user answers and generate badge"""
+            logger.warning(f"Evaluator MCP warmup skipped: {e}")
+            return False
+
+    async def _call_mcp_tool(self, tool_name: str, arguments: dict):
         try:
-            prompt = f"""Score these answers for {skill} evaluation.
+            session = await self._ensure_mcp_session()
+            result = await session.call_tool(tool_name, arguments)
 
-Questions and Answers:
-{json.dumps(list(zip(questions, answers)), indent=2)}
+            if result.content:
+                for content in result.content:
+                    if hasattr(content, "text"):
+                        return json.loads(content.text)
 
-Score each answer (0-20 points each, 100 total).
-Identify weak topics.
+            return {"error": "No response from tool"}
+        except Exception as e:
+            logger.error(f"Evaluator MCP tool call error: {tool_name} - {e}")
+            await self._reset_mcp_session()
+            return {"error": str(e)}
 
-Return JSON:
-{{
-    "scores": [20, 15, 20, 10, 18],
-    "total_score": 83,
-    "badge": "Advanced",
-    "weak_topics": ["topic1"],
-    "feedback": "Overall feedback..."
-}}
+    def get_adk_agent(self):
+        return self.adk_agent
 
-Badge criteria:
-- 90-100: Expert
-- 75-89: Advanced  
-- 60-74: Intermediate
-- 40-59: Beginner
-- <40: Needs Practice"""
-            
-            response = self.client.models.generate_content(
-                model=self.model_id,
-                contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.2)
+    def get_adk_runner(self):
+        return self.adk_runner
+
+    def generate_evaluation(
+        self,
+        session_id: str,
+        skill: str,
+        level: str,
+        question_count: int = 5,
+    ) -> dict:
+        return self._run_on_loop(
+            self._call_mcp_tool(
+                "generate_evaluation",
+                {
+                    "session_id": session_id,
+                    "skill": skill,
+                    "level": level,
+                    "question_count": question_count,
+                },
             )
-            
-            text = response.text.strip()
-            if text.startswith("```"):
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-            
-            result = json.loads(text)
-            
-            # Save to Firestore
-            self.db.save_result(session_id, {
-                "skill": skill,
-                "score": result.get("total_score"),
-                "badge": result.get("badge"),
-                "weak_topics": result.get("weak_topics", [])
-            })
-            
+        )
+
+    def evaluate_answers(
+        self,
+        session_id: str,
+        skill: str,
+        level: str,
+        answers: list,
+        questions: list | None = None,
+        practice_summary: dict | None = None,
+    ) -> dict:
+        return self._run_on_loop(
+            self._call_mcp_tool(
+                "evaluate_answers",
+                {
+                    "session_id": session_id,
+                    "skill": skill,
+                    "level": level,
+                    "answers": answers,
+                    "questions": questions,
+                    "practice_summary": practice_summary or {},
+                },
+            )
+        )
+
+    def fetch_jobs(self, skill: str, level: str = "", limit: int = 10, session_id: str = "") -> dict:
+        return self._run_on_loop(
+            self._call_mcp_tool(
+                "fetch_jobs",
+                {
+                    "session_id": session_id,
+                    "skill": skill,
+                    "level": level,
+                    "limit": limit,
+                },
+            )
+        )
+
+    def get_result(self, session_id: str) -> dict:
+        result = get_result(session_id)
+        if result:
             return result
-        except Exception as e:
-            logger.error(f"Scoring error: {e}")
-            return {"error": str(e)}
-    
-    async def fetch_jobs(self, skill: str) -> dict:
-        """Fetch 10 relevant jobs via RapidAPI JSearch"""
-        import requests
-        
+        return {"error": "No results found"}
+
+    def send_to_agent(
+        self,
+        to_agent: str,
+        message_type: str,
+        session_id: str,
+        payload: dict | None = None,
+    ):
+        message = A2AMessage(
+            from_agent="evaluator",
+            to_agent=to_agent,
+            message_type=message_type,
+            session_id=session_id,
+            payload=payload or {},
+        )
+        return a2a_protocol.send_message_sync(message)
+
+    async def handle_a2a_message(self, message: A2AMessage):
         try:
-            url = "https://jsearch.p.rapidapi.com/search"
-            headers = {
-                "X-RapidAPI-Key": settings.RAPIDAPI_KEY,
-                "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
-            }
-            params = {
-                "query": f"{skill} Developer",
-                "num_pages": "1",
-                "date_posted": "month"
-            }
-            
-            response = requests.get(url, headers=headers, params=params, timeout=30)
-            data = response.json()
-            
-            jobs = []
-            for job in data.get("data", [])[:10]:
-                jobs.append({
-                    "title": job.get("job_title"),
-                    "company": job.get("employer_name"),
-                    "location": job.get("job_city", "Remote"),
-                    "salary": job.get("job_min_salary", "Not specified"),
-                    "url": job.get("job_apply_link"),
-                    "description": job.get("job_description", "")[:200]
-                })
-            
-            return {"jobs": jobs, "count": len(jobs)}
+            message.validate()
+            if message.to_agent.lower() != "evaluator":
+                return {"error": "Message not intended for evaluator"}
+
+            payload = message.payload or {}
+
+            if message.message_type in {A2AProtocol.REQUEST_EVALUATION, A2AProtocol.START_EVALUATION}:
+                if payload.get("answers"):
+                    return self.evaluate_answers(
+                        session_id=message.session_id,
+                        skill=payload.get("skill", ""),
+                        level=payload.get("level", ""),
+                        answers=payload.get("answers", []),
+                        questions=payload.get("questions"),
+                        practice_summary=payload.get("practice_summary"),
+                    )
+                return self.generate_evaluation(
+                    session_id=message.session_id,
+                    skill=payload.get("skill", ""),
+                    level=payload.get("level", "Beginner"),
+                    question_count=payload.get("question_count", 5),
+                )
+
+            if message.message_type == A2AProtocol.FETCH_JOBS:
+                return self.fetch_jobs(
+                    session_id=message.session_id,
+                    skill=payload.get("skill", ""),
+                    level=payload.get("level", ""),
+                    limit=payload.get("limit", 10),
+                )
+
+            return {"error": f"Unsupported evaluator message type: {message.message_type}"}
         except Exception as e:
-            logger.error(f"Job fetch error: {e}")
-            return {"jobs": [], "error": str(e)}
-
-
-# For direct testing
-if __name__ == "__main__":
-    import asyncio
-    
-    async def test():
-        agent = EvaluatorAgent()
-        
-        # Test evaluation generation
-        result = await agent.generate_evaluation("test_session", "Python", "Beginner")
-        print("Evaluation:", json.dumps(result, indent=2))
-        
-        # Test job fetch
-        jobs = await agent.fetch_jobs("Python")
-        print("Jobs:", json.dumps(jobs, indent=2))
-    
-    asyncio.run(test())
+            logger.error(f"Evaluator A2A handling error: {e}")
+            return {"error": str(e)}

@@ -14,7 +14,6 @@ from flask import Flask, request, jsonify, render_template, session
 from werkzeug.utils import secure_filename
 
 from config.settings import settings
-from database.firestore_client import get_result
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,7 +26,9 @@ app.secret_key = settings.FLASK_SECRET_KEY or 'skillup-secret-2026'
 # Lazy agent initialization keeps app startup fast and only pays agent cost when needed.
 orchestrator = None
 learning_agent = None
+evaluator_agent = None
 _learning_lock = None
+_evaluator_lock = None
 
 
 def get_orchestrator():
@@ -50,6 +51,20 @@ def get_learning_agent():
                 from agents.learning_agent import LearningAgent
                 learning_agent = LearningAgent()
     return learning_agent
+
+
+def get_evaluator_agent():
+    global evaluator_agent
+    global _evaluator_lock
+    if _evaluator_lock is None:
+        import threading
+        _evaluator_lock = threading.Lock()
+    if evaluator_agent is None:
+        with _evaluator_lock:
+            if evaluator_agent is None:
+                from agents.evaluator_agent import EvaluatorAgent
+                evaluator_agent = EvaluatorAgent()
+    return evaluator_agent
 
 
 def _initialize_agent1():
@@ -464,21 +479,33 @@ def update_schedule_progress():
 
 @app.route('/api/evaluate', methods=['POST'])
 def evaluate():
-    """Generate and process evaluation"""
+    """Generate an evaluation pack or score submitted answers."""
     try:
         data = request.json or {}
         session_id = data.get('session_id') or session.get('session_id')
         skill = data.get('skill')
         level = data.get('level')
         answers = data.get('answers', [])
-        
-        # TODO: Connect to EvaluatorAgent when created
-        # For now, return placeholder
-        result = {
-            "score": 0,
-            "badge": "Pending",
-            "feedback": "Evaluator agent not yet connected"
-        }
+
+        if answers:
+            result = get_evaluator_agent().evaluate_answers(
+                session_id=session_id,
+                skill=skill,
+                level=level,
+                answers=answers,
+                questions=data.get('questions'),
+                practice_summary=data.get('practice_summary'),
+            )
+        else:
+            result = get_evaluator_agent().generate_evaluation(
+                session_id=session_id,
+                skill=skill,
+                level=level or 'Beginner',
+                question_count=int(data.get('question_count', 5)),
+            )
+
+        if result.get("error"):
+            return jsonify({"success": False, "error": result["error"]}), 400
         return jsonify({"success": True, "data": result})
     except Exception as e:
         logger.error(f"Evaluation error: {e}")
@@ -486,17 +513,17 @@ def evaluate():
 
 @app.route('/api/jobs', methods=['POST'])
 def get_jobs():
-    """Fetch relevant jobs"""
+    """Fetch relevant jobs for a skill and current readiness."""
     try:
         data = request.json or {}
+        session_id = data.get('session_id') or session.get('session_id')
         skill = data.get('skill')
-        
-        # TODO: Connect to EvaluatorAgent when created
-        # For now, return placeholder
-        result = {
-            "jobs": [],
-            "message": "Job search not yet connected"
-        }
+        level = data.get('level', '')
+        limit = int(data.get('limit', 10))
+
+        result = get_evaluator_agent().fetch_jobs(skill, level, limit, session_id=session_id or "")
+        if result.get("error"):
+            return jsonify({"success": False, "error": result["error"], "data": result}), 400
         return jsonify({"success": True, "data": result})
     except Exception as e:
         logger.error(f"Jobs error: {e}")
@@ -506,8 +533,8 @@ def get_jobs():
 def get_results(session_id):
     """Get session results"""
     try:
-        result = get_result(session_id)
-        if result:
+        result = get_evaluator_agent().get_result(session_id)
+        if result and not result.get("error"):
             return jsonify({"success": True, "data": result})
         return jsonify({"success": False, "error": "No results found"}), 404
     except Exception as e:
