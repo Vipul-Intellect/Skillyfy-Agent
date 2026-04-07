@@ -14,6 +14,7 @@ from flask import Flask, request, jsonify, render_template, session
 from werkzeug.utils import secure_filename
 
 from config.settings import settings
+from database.firestore_client import get_result
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -302,7 +303,7 @@ def get_skill_gap_job(job_id):
 def execute_code():
     """Execute code via Piston API"""
     try:
-        data = request.json
+        data = request.json or {}
         code = data.get('code', '')
         language = data.get('language', 'python')
         stdin = data.get('stdin', '')
@@ -428,11 +429,44 @@ def generate_schedule():
 # EVALUATOR ENDPOINTS (TO BE CONNECTED)
 # ═══════════════════════════════════════════════════════════════
 
+@app.route('/api/schedule/<session_id>', methods=['GET'])
+def get_schedule(session_id):
+    """Get current learning schedule for a session."""
+    try:
+        result = get_learning_agent().get_schedule(session_id)
+        if result.get("error") == "Session not found":
+            return jsonify({"success": False, "error": "Session not found"}), 404
+        return jsonify({"success": True, "data": result})
+    except Exception as e:
+        logger.error(f"Get schedule error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/schedule/progress', methods=['POST'])
+def update_schedule_progress():
+    """Update learning schedule progress for a session."""
+    try:
+        data = request.json or {}
+        session_id = data.get('session_id') or session.get('session_id')
+        day = int(data.get('day', 1))
+        completed = data.get('completed', True)
+
+        result = get_learning_agent().update_progress(
+            session_id=session_id,
+            day=day,
+            completed=completed,
+        )
+        if result.get("error") == "Session not found":
+            return jsonify({"success": False, "error": "Session not found"}), 404
+        return jsonify({"success": True, "data": result})
+    except Exception as e:
+        logger.error(f"Update schedule progress error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/api/evaluate', methods=['POST'])
 def evaluate():
     """Generate and process evaluation"""
     try:
-        data = request.json
+        data = request.json or {}
         session_id = data.get('session_id') or session.get('session_id')
         skill = data.get('skill')
         level = data.get('level')
@@ -454,7 +488,7 @@ def evaluate():
 def get_jobs():
     """Fetch relevant jobs"""
     try:
-        data = request.json
+        data = request.json or {}
         skill = data.get('skill')
         
         # TODO: Connect to EvaluatorAgent when created
@@ -472,7 +506,7 @@ def get_jobs():
 def get_results(session_id):
     """Get session results"""
     try:
-        result = db.get_result(session_id)
+        result = get_result(session_id)
         if result:
             return jsonify({"success": True, "data": result})
         return jsonify({"success": False, "error": "No results found"}), 404

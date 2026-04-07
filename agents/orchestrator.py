@@ -61,6 +61,8 @@ class OrchestratorAgent:
             )
             self._skill_gap_jobs_lock = threading.Lock()
             self._skill_gap_jobs = {}
+            self._session_state_lock = threading.Lock()
+            self._session_state = {}
             self.adk_app_name = "skillup_orchestrator"
 
             # Official ADK architecture for Agent 1:
@@ -250,6 +252,7 @@ over unsupported free-form responses.""",
                 },
             )
         )
+        self._cache_resume_session_state(session_id, result)
         self._persist_resume_result_async(session_id, result)
         return result
 
@@ -267,8 +270,21 @@ over unsupported free-form responses.""",
                 },
             )
         )
+        self._cache_resume_session_state(session_id, result)
         self._persist_resume_result_async(session_id, result)
         return result
+
+    def _cache_resume_session_state(self, session_id: str, result: dict):
+        """Keep a fast in-memory copy of the latest resume-derived session state."""
+        if not isinstance(result, dict) or result.get("error"):
+            return
+
+        payload = {
+            "user_skills": result.get("user_skills", []),
+            "experience_level": result.get("experience_level", "Beginner"),
+            "domain": result.get("domain", "General"),
+        }
+        self._merge_local_session_state(session_id, payload)
 
     def _submit_persistence(self, fn, *args, **kwargs):
         """Run Firestore persistence off the user-visible request path."""
@@ -325,6 +341,15 @@ over unsupported free-form responses.""",
         if not isinstance(result, dict) or result.get("error"):
             return
 
+        self._merge_local_session_state(
+            session_id,
+            {
+                "skill": skill,
+                "declared_level": declared_level,
+                "assessment_questions": result.get("questions", []),
+            },
+        )
+
         def _persist():
             try:
                 from database.firestore_client import save_session
@@ -346,6 +371,14 @@ over unsupported free-form responses.""",
         """Persist validated level without blocking the request."""
         if not isinstance(result, dict) or result.get("error"):
             return
+
+        self._merge_local_session_state(
+            session_id,
+            {
+                "validated_level": result.get("validated_level", "Beginner"),
+                "level_confidence": result.get("confidence", 0.5),
+            },
+        )
 
         def _persist():
             try:
@@ -379,12 +412,15 @@ over unsupported free-form responses.""",
         if resolved_skills is None:
             from database.firestore_client import get_session
 
-            session = get_session(session_id)
+            session = self._get_local_session_state(session_id) or get_session(session_id)
             if not session:
                 logger.error(f"Session not found: {session_id}")
                 return {"error": "Session not found"}
 
             resolved_skills = session.get('user_skills', [])
+            if not resolved_skills:
+                logger.error(f"User skills not found for session: {session_id}")
+                return {"error": "User skills not found"}
 
         result = self._run_on_loop(
             self._call_mcp_tool(
@@ -402,12 +438,18 @@ over unsupported free-form responses.""",
 
     def start_skill_gap_job(self, session_id: str, target_role: str, user_skills=None):
         """Queue a background live skill-gap computation job."""
+        resolved_skills = user_skills
+        if resolved_skills is None:
+            session = self._get_local_session_state(session_id)
+            if session:
+                resolved_skills = session.get("user_skills")
+
         job_id = str(uuid.uuid4())
         job_record = {
             "job_id": job_id,
             "session_id": session_id,
             "target_role": target_role,
-            "user_skills": user_skills or [],
+            "user_skills": resolved_skills or [],
             "status": "processing",
         }
         self._set_local_skill_gap_job(job_id, job_record)
@@ -427,7 +469,7 @@ over unsupported free-form responses.""",
             job_id,
             session_id,
             target_role,
-            user_skills,
+            resolved_skills,
         )
 
         return {
@@ -491,6 +533,19 @@ over unsupported free-form responses.""",
     def _get_local_skill_gap_job(self, job_id: str):
         with self._skill_gap_jobs_lock:
             payload = self._skill_gap_jobs.get(job_id)
+            if not payload:
+                return None
+            return dict(payload)
+
+    def _merge_local_session_state(self, session_id: str, payload: dict):
+        with self._session_state_lock:
+            existing = dict(self._session_state.get(session_id, {}))
+            existing.update(payload)
+            self._session_state[session_id] = existing
+
+    def _get_local_session_state(self, session_id: str):
+        with self._session_state_lock:
+            payload = self._session_state.get(session_id)
             if not payload:
                 return None
             return dict(payload)
