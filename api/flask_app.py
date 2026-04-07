@@ -229,7 +229,7 @@ def validate_level():
 def get_videos():
     """Get video recommendations"""
     try:
-        data = request.json
+        data = request.json or {}
         skill = data.get('skill')
         level = data.get('level', 'Beginner')
         topic = data.get('topic', '')
@@ -388,7 +388,7 @@ def evaluate_practice():
 def get_hint():
     """Get Socratic hint"""
     try:
-        data = request.json
+        data = request.json or {}
         session_id = data.get('session_id') or session.get('session_id')
         skill = data.get('skill')
         topic = data.get('topic')
@@ -409,7 +409,7 @@ def get_hint():
 def generate_schedule():
     """Generate learning schedule"""
     try:
-        data = request.json
+        data = request.json or {}
         session_id = data.get('session_id') or session.get('session_id')
         skill = data.get('skill')
         level = data.get('level', 'Beginner')

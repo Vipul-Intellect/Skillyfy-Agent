@@ -23,6 +23,14 @@ logger = get_logger(__name__)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MCP_SERVER_PATH = os.path.join(PROJECT_ROOT, "tools", "mcp_tools", "server.py")
 
+
+def _child_process_env() -> dict:
+    """Explicitly forward Cloud Run env vars to the MCP subprocess."""
+    env = os.environ.copy()
+    existing_path = env.get("PYTHONPATH", "").strip()
+    env["PYTHONPATH"] = PROJECT_ROOT if not existing_path else f"{PROJECT_ROOT}{os.pathsep}{existing_path}"
+    return env
+
 class OrchestratorAgent:
     def __init__(self):
         try:
@@ -34,7 +42,7 @@ class OrchestratorAgent:
             self.server_params = StdioServerParameters(
                 command=sys.executable,
                 args=[MCP_SERVER_PATH],
-                env=None
+                env=_child_process_env()
             )
             
             self.loop = asyncio.new_event_loop()

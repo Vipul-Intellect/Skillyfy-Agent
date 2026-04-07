@@ -231,7 +231,7 @@ def _youtube_duration_filter(preferred_duration: str) -> str | None:
     normalized = (preferred_duration or "").strip().lower()
     if not normalized:
         return None
-    if normalized == "20 min":
+    if normalized == "10 min":
         return "medium"
     if normalized in {"40 min", "60 min", "2 hours"}:
         return "long"
@@ -400,7 +400,7 @@ def _duration_match_score(duration_seconds: int, preferred_duration: str) -> int
         return 1
 
     target_map = {
-        "20 min": 20 * 60,
+        "10 min": 10 * 60,
         "40 min": 40 * 60,
         "60 min": 60 * 60,
         "2 hours": 2 * 60 * 60,
@@ -461,7 +461,7 @@ TOOL_DEFINITIONS = [
                 "skill": {"type": "string", "description": "The skill to search tutorials for"},
                 "level": {"type": "string", "enum": ["Beginner", "Intermediate", "Advanced"], "description": "User skill level"},
                 "topic": {"type": "string", "description": "Specific topic inside the skill"},
-                "preferred_duration": {"type": "string", "enum": ["20 min", "40 min", "60 min", "2 hours"], "description": "Preferred learning video duration"},
+                "preferred_duration": {"type": "string", "enum": ["10 min", "40 min", "60 min", "2 hours"], "description": "Preferred learning video duration"},
                 "max_results": {"type": "integer", "description": "Maximum videos to return (default 12)"},
             },
             "required": ["skill", "level"],

@@ -50,7 +50,7 @@ async def list_tools():
                     "skill": {"type": "string", "description": "Skill to search tutorials for"},
                     "level": {"type": "string", "enum": ["Beginner", "Intermediate", "Advanced"], "description": "User skill level"},
                     "topic": {"type": "string", "description": "Specific topic within the skill"},
-                    "preferred_duration": {"type": "string", "enum": ["20 min", "40 min", "60 min", "2 hours"], "description": "Preferred video duration"},
+                    "preferred_duration": {"type": "string", "enum": ["10 min", "40 min", "60 min", "2 hours"], "description": "Preferred video duration"},
                     "max_results": {"type": "integer", "description": "Maximum videos to return (default 12)"}
                 },
                 "required": ["skill", "level"]
