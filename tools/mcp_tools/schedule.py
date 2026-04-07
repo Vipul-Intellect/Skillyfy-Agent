@@ -4,7 +4,7 @@ from google import genai
 from google.genai import types
 
 from config.settings import settings
-from database.firestore_client import get_session, update_session
+from database.firestore_client import get_session, save_session
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -89,7 +89,7 @@ def generate_schedule(
             "progress_percentage": 0,
         }
 
-        update_session(session_id, {"schedule": schedule})
+        save_session(session_id, {"schedule": schedule})
         logger.info(f"Generated {mode_key} schedule for {skill}: {total_days} days")
         return schedule
     except Exception as e:
@@ -196,7 +196,7 @@ def update_schedule_progress(session_id: str, day: int, completed: bool = True) 
         schedule["progress_percentage"] = progress
         schedule["current_day"] = min(day + 1 if completed else day, total_days)
 
-        update_session(session_id, {"schedule": schedule})
+        save_session(session_id, {"schedule": schedule})
         return {
             "day_completed": day,
             "progress_percentage": progress,
