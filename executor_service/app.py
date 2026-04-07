@@ -1,21 +1,18 @@
 import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import logging
 
 from flask import Flask, jsonify, request
 
-from config.settings import settings
-from executor_service.runtime import execute_code, get_execution_config, validate_code
-from utils.logger import get_logger
+from runtime import execute_code, get_execution_config, validate_code
 
-logger = get_logger(__name__)
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
 
 def _is_authorized(req) -> bool:
-    shared_secret = settings.EXECUTOR_SHARED_SECRET
+    shared_secret = (os.getenv("EXECUTOR_SHARED_SECRET") or "").strip()
     if not shared_secret:
         return True
     provided = req.headers.get("X-Executor-Secret", "")
@@ -70,4 +67,4 @@ def execute():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8081, debug=False)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")), debug=False)

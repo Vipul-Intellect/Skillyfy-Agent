@@ -3,11 +3,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import logging
 from pathlib import Path
 
-from utils.logger import get_logger
-
-logger = get_logger(__name__)
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
 
 LANGUAGE_ALIASES = {
     "js": "javascript",
