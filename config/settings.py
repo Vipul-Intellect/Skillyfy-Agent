@@ -32,6 +32,7 @@ class Settings:
     JOB_CACHE_TTL = int(os.getenv('JOB_CACHE_TTL', '6'))
     MARKET_PROFILE_CACHE_TTL_MINUTES = int(os.getenv('MARKET_PROFILE_CACHE_TTL_MINUTES', '15'))
     ENABLE_MARKET_PROFILE_PREWARM = os.getenv('ENABLE_MARKET_PROFILE_PREWARM', 'False') == 'True'
+    ENABLE_AGENT1_STARTUP_WARMUP = os.getenv('ENABLE_AGENT1_STARTUP_WARMUP', 'False') == 'True'
 
     # Market profile prewarm roles for production refresh jobs
     HOT_MARKET_ROLES = [

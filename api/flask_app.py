@@ -71,7 +71,8 @@ def _prewarm_market_profiles():
         logger.warning(f"Background market profile prewarm failed: {e}")
 
 
-_initialize_agent1()
+if settings.ENABLE_AGENT1_STARTUP_WARMUP:
+    _initialize_agent1()
 if settings.ENABLE_MARKET_PROFILE_PREWARM:
     threading.Thread(target=_prewarm_market_profiles, daemon=True).start()
 
