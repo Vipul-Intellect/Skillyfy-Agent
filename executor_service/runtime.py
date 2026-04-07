@@ -52,30 +52,6 @@ LANGUAGE_CONFIG = {
         "monaco_language": "c",
         "starter_code": "#include <stdio.h>\n\nint main() {\n    printf(\"hello\\n\");\n    return 0;\n}\n",
     },
-    "go": {
-        "label": "Go",
-        "extension": "go",
-        "monaco_language": "go",
-        "starter_code": "package main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"hello\")\n}\n",
-    },
-    "rust": {
-        "label": "Rust",
-        "extension": "rs",
-        "monaco_language": "rust",
-        "starter_code": "fn main() {\n    println!(\"hello\");\n}\n",
-    },
-    "ruby": {
-        "label": "Ruby",
-        "extension": "rb",
-        "monaco_language": "ruby",
-        "starter_code": "def solve\n  'hello'\nend\n\nputs solve\n",
-    },
-    "php": {
-        "label": "PHP",
-        "extension": "php",
-        "monaco_language": "php",
-        "starter_code": "<?php\nfunction solve() {\n    return 'hello';\n}\n\necho solve();\n",
-    },
 }
 
 PRIMARY_EDITOR_LANGUAGES = ["python", "javascript", "typescript", "java", "cpp"]
@@ -212,27 +188,6 @@ def _run_language(tmp_path: Path, file_path: Path, lang: str, stdin: str, timeou
             compile_result["type"] = "compilation_error"
             return compile_result
         return _run_process([str(output_bin)], tmp_path, stdin, timeout_seconds, lang)
-
-    if lang == "go":
-        go = _require_binary("go", lang)
-        return _run_process([go, "run", str(file_path)], tmp_path, stdin, timeout_seconds, lang)
-
-    if lang == "rust":
-        rustc = _require_binary("rustc", lang)
-        output_bin = tmp_path / ("main.exe" if os.name == "nt" else "main")
-        compile_result = _run_process([rustc, str(file_path), "-o", str(output_bin)], tmp_path, "", timeout_seconds, lang)
-        if not compile_result["success"]:
-            compile_result["type"] = "compilation_error"
-            return compile_result
-        return _run_process([str(output_bin)], tmp_path, stdin, timeout_seconds, lang)
-
-    if lang == "ruby":
-        ruby = _require_binary("ruby", lang)
-        return _run_process([ruby, str(file_path)], tmp_path, stdin, timeout_seconds, lang)
-
-    if lang == "php":
-        php = _require_binary("php", lang)
-        return _run_process([php, str(file_path)], tmp_path, stdin, timeout_seconds, lang)
 
     return _error_response(lang, "unsupported_language", f"Unsupported language: {lang}")
 

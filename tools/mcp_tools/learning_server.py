@@ -65,7 +65,7 @@ async def list_tools():
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "description": "Source code to execute"},
-                    "language": {"type": "string", "enum": ["python", "javascript", "java", "c", "cpp", "go", "rust", "ruby", "php", "typescript"], "description": "Programming language"},
+                    "language": {"type": "string", "enum": ["python", "javascript", "typescript", "java", "cpp", "c"], "description": "Programming language"},
                     "stdin": {"type": "string", "description": "Standard input for the code"}
                 },
                 "required": ["code", "language"]
