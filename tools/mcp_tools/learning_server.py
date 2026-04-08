@@ -104,7 +104,8 @@ async def list_tools():
                     "skill": {"type": "string", "description": "Current skill"},
                     "topic": {"type": "string", "description": "Specific topic"},
                     "level": {"type": "string", "enum": ["Beginner", "Intermediate", "Advanced"], "description": "User level"},
-                    "language": {"type": "string", "description": "Programming language for the mini-lab"}
+                    "language": {"type": "string", "description": "Programming language for the mini-lab"},
+                    "video_context": {"type": "object", "description": "Optional selected-video context to make the practice more specific"}
                 },
                 "required": ["session_id", "skill", "topic", "level"]
             }
@@ -267,6 +268,7 @@ async def call_tool(name: str, arguments: dict):
                 topic=arguments.get("topic", ""),
                 level=arguments.get("level", "Beginner"),
                 language=arguments.get("language", "python"),
+                video_context=arguments.get("video_context", {}),
             )
         elif name == "get_socratic_hint":
             from tools.mcp_tools import socratic

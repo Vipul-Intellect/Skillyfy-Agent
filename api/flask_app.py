@@ -365,6 +365,7 @@ def generate_practice():
         topic = data.get('topic')
         level = data.get('level', 'Beginner')
         language = data.get('language', 'python')
+        video_context = data.get('video_context', {})
 
         result = get_learning_agent().generate_practice(
             session_id=session_id,
@@ -372,6 +373,7 @@ def generate_practice():
             topic=topic,
             level=level,
             language=language,
+            video_context=video_context,
         )
         return jsonify({"success": True, "data": result})
     except Exception as e:

@@ -40,6 +40,7 @@ def generate_practice_set(
     topic: str,
     level: str,
     language: str = "python",
+    video_context: dict | None = None,
 ) -> dict:
     """
     Generate a practice pack with 3 questions and 1 mini-lab.
@@ -60,8 +61,19 @@ def generate_practice_set(
                             "options": {"type": "array", "items": {"type": "string"}},
                             "expected_focus": {"type": "string"},
                             "evaluation_guide": {"type": "string"},
+                            "difficulty": {"type": "string"},
+                            "real_world_context": {"type": "string"},
+                            "estimated_minutes": {"type": "integer"},
                         },
-                        "required": ["type", "question", "expected_focus", "evaluation_guide"],
+                        "required": [
+                            "type",
+                            "question",
+                            "expected_focus",
+                            "evaluation_guide",
+                            "difficulty",
+                            "real_world_context",
+                            "estimated_minutes",
+                        ],
                     },
                 },
                 "mini_lab": {
@@ -70,26 +82,87 @@ def generate_practice_set(
                         "title": {"type": "string"},
                         "prompt": {"type": "string"},
                         "starter_code": {"type": "string"},
+                        "difficulty": {"type": "string"},
+                        "estimated_minutes": {"type": "integer"},
+                        "real_world_context": {"type": "string"},
+                        "test_cases": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 3,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "input": {"type": "string"},
+                                    "expected": {"type": "string"},
+                                },
+                                "required": ["input", "expected"],
+                            },
+                        },
+                        "hints": {
+                            "type": "array",
+                            "minItems": 3,
+                            "maxItems": 3,
+                            "items": {"type": "string"},
+                        },
                         "success_criteria": {
                             "type": "array",
                             "items": {"type": "string"},
                             "minItems": 2,
                         },
                     },
-                    "required": ["title", "prompt", "starter_code", "success_criteria"],
+                    "required": [
+                        "title",
+                        "prompt",
+                        "starter_code",
+                        "difficulty",
+                        "estimated_minutes",
+                        "real_world_context",
+                        "test_cases",
+                        "hints",
+                        "success_criteria",
+                    ],
                 },
                 "practice_summary": {"type": "string"},
             },
             "required": ["questions", "mini_lab", "practice_summary"],
         }
 
-        response = _get_client().models.generate_content(
-            model="gemini-2.5-flash",
-            contents=f"""Create a practice pack for a {level} learner.
+        level_rules = {
+            "beginner": {
+                "question_style": "simple concept application, one clear function or idea, explicit success shape, and obvious scaffolding",
+                "lab_style": "small practical task with strong starter code and straightforward cases",
+                "minutes": "5-10",
+            },
+            "intermediate": {
+                "question_style": "real-world scenario, multiple logical steps, one useful edge case, and partial scaffolding",
+                "lab_style": "practical workflow task with realistic inputs and at least one edge case",
+                "minutes": "8-12",
+            },
+            "advanced": {
+                "question_style": "real-world engineering scenario with stronger tradeoffs, performance or design thinking, and minimal scaffolding",
+                "lab_style": "applied challenge with stronger constraints, tougher cases, and minimal starter code",
+                "minutes": "10-15",
+            },
+        }
+        normalized_level = (level or "Beginner").strip().lower()
+        selected_rules = level_rules.get(normalized_level, level_rules["beginner"])
+        related_video_text = ""
+        if video_context:
+            related_video_text = (
+                "\nRelated learning context:\n"
+                f"{json.dumps(video_context, indent=2)}\n"
+                "Make the practice feel directly connected to this recent learning context.\n"
+            )
+
+        try:
+            response = _get_client().models.generate_content(
+                model="gemini-2.5-flash",
+                contents=f"""Create a practice pack for a {level} learner.
 
 Skill: {skill}
 Topic: {topic}
 Language: {language}
+{related_video_text}
 
 Return:
 - exactly 3 strong learning questions
@@ -98,22 +171,35 @@ Return:
 Rules:
 - This is not a LeetCode-style assessment.
 - Focus on practical understanding, debugging, and applied use.
-- Questions should be concise and high-quality.
-- The mini-lab should be 5-15 minutes of work.
-- Starter code must be short and runnable.
+- Questions should be concise, high-quality, and clearly related to the topic just studied.
+- Avoid generic textbook prompts when a more realistic scenario can be used.
+- Level-specific question style: {selected_rules["question_style"]}.
+- Level-specific mini-lab style: {selected_rules["lab_style"]}.
+- The mini-lab should be solvable in about {selected_rules["minutes"]} minutes.
+- Every mini-lab must include:
+  - real-world context
+  - short runnable starter code
+  - 2 or 3 test cases
+  - exactly 3 Socratic hints
+- Hint 1 must be conceptual.
+- Hint 2 must point to the right approach.
+- Hint 3 must give structure without giving away the full solution.
 - Keep the difficulty aligned to the learner level.""",
-            config=types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="application/json",
-                response_schema=schema,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
-                http_options=types.HttpOptions(timeout=settings.API_TIMEOUT * 1000),
-            ),
-        )
+                config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    http_options=types.HttpOptions(timeout=settings.API_TIMEOUT * 1000),
+                ),
+            )
 
-        result = response.parsed or {}
-        if not result.get("questions") or not result.get("mini_lab"):
-            raise ValueError("Practice generator returned incomplete output")
+            result = response.parsed or {}
+            if not result.get("questions") or not result.get("mini_lab"):
+                raise ValueError("Practice generator returned incomplete output")
+        except Exception as e:
+            logger.warning(f"Practice generation fell back to deterministic pack for {session_id}: {e}")
+            result = _fallback_practice_pack(skill, topic, level, language, video_context)
 
         payload = {
             "session_id": session_id,
@@ -163,6 +249,9 @@ def _public_practice_payload(payload: dict) -> dict:
                 "question": question.get("question"),
                 "options": question.get("options", []),
                 "expected_focus": question.get("expected_focus"),
+                "difficulty": question.get("difficulty"),
+                "real_world_context": question.get("real_world_context"),
+                "estimated_minutes": question.get("estimated_minutes"),
             }
         )
 
@@ -176,6 +265,166 @@ def _public_practice_payload(payload: dict) -> dict:
         "mini_lab": payload.get("mini_lab", {}),
         "practice_summary": payload.get("practice_summary", ""),
     }
+
+
+def _fallback_practice_pack(skill: str, topic: str, level: str, language: str, video_context: dict | None) -> dict:
+    normalized_skill = (skill or "this skill").strip()
+    normalized_topic = (topic or normalized_skill).strip()
+    normalized_level = (level or "Beginner").strip().title()
+    video_title = (video_context or {}).get("title") or ""
+    learning_anchor = f" after watching '{video_title}'" if video_title else ""
+
+    if normalized_level == "Advanced":
+        lab_title = f"{normalized_topic} resilient workflow"
+        lab_prompt = (
+            f"You just studied {normalized_topic}{learning_anchor}. Build a small {normalized_skill} utility "
+            f"that handles a realistic edge case, keeps the logic reusable, and stays easy to test."
+        )
+        starter_code = _starter_code_for_language(language, advanced=True)
+        difficulty = "Advanced"
+        estimated_minutes = 15
+    elif normalized_level == "Intermediate":
+        lab_title = f"{normalized_topic} practical handler"
+        lab_prompt = (
+            f"You just studied {normalized_topic}{learning_anchor}. Build a small practical {normalized_skill} "
+            f"helper that handles normal input plus one edge case cleanly."
+        )
+        starter_code = _starter_code_for_language(language)
+        difficulty = "Intermediate"
+        estimated_minutes = 12
+    else:
+        lab_title = f"{normalized_topic} starter challenge"
+        lab_prompt = (
+            f"You just studied {normalized_topic}{learning_anchor}. Build a short {normalized_skill} function "
+            f"that applies the core idea to one realistic beginner scenario."
+        )
+        starter_code = _starter_code_for_language(language, beginner=True)
+        difficulty = "Beginner"
+        estimated_minutes = 8
+
+    return {
+        "questions": [
+            {
+                "type": "short_answer",
+                "question": f"In your own words, what problem does {normalized_topic} solve in a real workflow?",
+                "expected_focus": f"Practical purpose of {normalized_topic}",
+                "evaluation_guide": "Look for clear explanation of the topic's real use, not memorized jargon.",
+                "difficulty": normalized_level,
+                "real_world_context": f"Relate the answer to a realistic {normalized_skill} task.",
+                "estimated_minutes": 3,
+            },
+            {
+                "type": "multiple_choice",
+                "question": f"When applying {normalized_topic}, what should you verify first before writing the full solution?",
+                "options": [
+                    "The main input/output shape and edge cases",
+                    "Only the final print statement",
+                    "Whether the code looks long enough",
+                    "Whether comments are already written",
+                ],
+                "expected_focus": "Planning and debugging discipline",
+                "evaluation_guide": "Accept answers that prioritize input expectations and edge cases.",
+                "difficulty": normalized_level,
+                "real_world_context": "A learner is implementing the concept in a real coding task.",
+                "estimated_minutes": 2,
+            },
+            {
+                "type": "short_answer",
+                "question": f"What is one mistake a {normalized_level.lower()} learner might make with {normalized_topic}, and how would you avoid it?",
+                "expected_focus": "Misconception handling and self-correction",
+                "evaluation_guide": "Look for awareness of a likely mistake plus one practical prevention step.",
+                "difficulty": normalized_level,
+                "real_world_context": f"Reflecting on mistakes while applying {normalized_topic} in code.",
+                "estimated_minutes": 4,
+            },
+        ],
+        "mini_lab": {
+            "title": lab_title,
+            "prompt": lab_prompt,
+            "starter_code": starter_code,
+            "difficulty": difficulty,
+            "estimated_minutes": estimated_minutes,
+            "real_world_context": f"Small, job-like {normalized_skill} task based on {normalized_topic}.",
+            "test_cases": [
+                {"input": "normal input", "expected": "correct transformed output"},
+                {"input": "edge case input", "expected": "safe, predictable behavior"},
+            ],
+            "hints": [
+                f"Start by identifying the single responsibility of your {normalized_topic} helper.",
+                "Break the task into input handling first, then the core transformation.",
+                "Write the function shape first, then fill in the smallest working logic.",
+            ],
+            "success_criteria": [
+                "The code runs without syntax errors.",
+                f"The solution clearly applies {normalized_topic}.",
+                "At least one edge case is handled cleanly.",
+            ],
+        },
+        "practice_summary": (
+            f"This pack reinforces {normalized_topic} for a {normalized_level} learner with one applied coding task "
+            f"and short concept checks."
+        ),
+    }
+
+
+def _starter_code_for_language(language: str, beginner: bool = False, advanced: bool = False) -> str:
+    lang = (language or "python").strip().lower()
+    if lang == "javascript":
+        if advanced:
+            return (
+                "function solve(input) {\n"
+                "  // keep the logic reusable and handle one tricky case\n"
+                "  return input;\n"
+                "}\n\n"
+                "console.log(solve('sample'));\n"
+            )
+        if beginner:
+            return (
+                "function solve(input) {\n"
+                "  // apply the topic here\n"
+                "  return input;\n"
+                "}\n"
+            )
+    if lang == "typescript":
+        return (
+            "function solve(input: string): string {\n"
+            "  // apply the topic here\n"
+            "  return input;\n"
+            "}\n\n"
+            "console.log(solve('sample'));\n"
+        )
+    if lang == "java":
+        return (
+            "public class Main {\n"
+            "    static String solve(String input) {\n"
+            "        // apply the topic here\n"
+            "        return input;\n"
+            "    }\n\n"
+            "    public static void main(String[] args) {\n"
+            "        System.out.println(solve(\"sample\"));\n"
+            "    }\n"
+            "}\n"
+        )
+    if lang == "cpp":
+        return (
+            "#include <iostream>\n"
+            "#include <string>\n"
+            "using namespace std;\n\n"
+            "string solve(const string& input) {\n"
+            "    // apply the topic here\n"
+            "    return input;\n"
+            "}\n\n"
+            "int main() {\n"
+            "    cout << solve(\"sample\") << endl;\n"
+            "    return 0;\n"
+            "}\n"
+        )
+    return (
+        "def solve(input_value):\n"
+        "    # apply the topic here\n"
+        "    return input_value\n\n"
+        "print(solve('sample'))\n"
+    )
 
 
 def evaluate_practice_answers(
@@ -492,7 +741,7 @@ Rules:
 TOOL_DEFINITIONS = [
     {
         "name": "generate_practice_set",
-        "description": "Generate 3-4 practice questions and 1 mini-lab for a selected skill topic and language.",
+        "description": "Generate 3-4 practice questions and 1 richer mini-lab for a selected skill topic and language, optionally grounded in the selected learning video.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -501,6 +750,7 @@ TOOL_DEFINITIONS = [
                 "topic": {"type": "string", "description": "Specific topic or concept"},
                 "level": {"type": "string", "enum": ["Beginner", "Intermediate", "Advanced"], "description": "User skill level"},
                 "language": {"type": "string", "description": "Programming language for the mini-lab"},
+                "video_context": {"type": "object", "description": "Optional selected-video context to make the practice more specific"},
             },
             "required": ["session_id", "skill", "topic", "level"],
         },

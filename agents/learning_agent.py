@@ -309,6 +309,7 @@ and manage schedules. Prefer tool-grounded responses and keep outputs structured
         topic: str,
         level: str,
         language: str = "python",
+        video_context: dict | None = None,
     ) -> dict:
         """Generate 3-4 questions and 1 mini-lab for a topic."""
         return self._run_on_loop(
@@ -320,6 +321,7 @@ and manage schedules. Prefer tool-grounded responses and keep outputs structured
                     "topic": topic,
                     "level": level,
                     "language": language,
+                    "video_context": video_context or {},
                 },
             )
         )
