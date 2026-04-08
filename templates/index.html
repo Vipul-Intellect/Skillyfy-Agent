@@ -4,47 +4,438 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SkillUp Agent</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@400" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <div class="container mt-5">
-        <h1 class="text-center mb-5">SkillUp Agent</h1>
-        
-        <div id="entry-section" class="section">
-            <h2>Get Started</h2>
-            <div class="row">
-                <div class="col-md-4">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">Trending Skills</h5>
-                            <button class="btn btn-primary" onclick="loadTrendingSkills()">Show Trending</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">Enter Skill</h5>
-                            <input type="text" class="form-control mb-2" id="skillInput" placeholder="e.g. React">
-                            <button class="btn btn-primary" onclick="submitSkill()">Submit</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">Upload Resume</h5>
-                            <input type="file" class="form-control mb-2" id="resumeFile">
-                            <button class="btn btn-primary" onclick="uploadResume()">Analyze</button>
-                        </div>
-                    </div>
-                </div>
+    <div class="app-chrome" aria-hidden="true"></div>
+    <div id="toast-area" class="toast-area" aria-live="polite"></div>
+
+    <header class="topbar">
+        <div class="brand-lockup">
+            <span class="material-symbols-outlined brand-icon">neurology</span>
+            <div>
+                <p class="eyebrow">SkillUp Agent</p>
+                <h1>Discover. Learn. Prove Readiness.</h1>
             </div>
         </div>
+
+        <nav class="stage-nav" aria-label="Product stages">
+            <a href="#discover-stage" class="stage-link stage-link-active" data-stage-link="discover-stage">Discover</a>
+            <a href="#learn-stage" class="stage-link" data-stage-link="learn-stage">Learn</a>
+            <a href="#prove-stage" class="stage-link" data-stage-link="prove-stage">Prove</a>
+        </nav>
+
+        <div class="session-pill" id="session-pill">Session idle</div>
+    </header>
+
+    <div class="app-shell">
+        <aside class="summary-rail">
+            <section class="summary-card sticky-card">
+                <div class="card-header">
+                    <div>
+                        <p class="eyebrow">Session Summary</p>
+                        <h2>Live product state</h2>
+                    </div>
+                    <button id="start-session-btn" class="button button-secondary button-small">Start Session</button>
+                </div>
+
+                <div class="summary-grid" id="summary-grid">
+                    <div class="summary-item">
+                        <span class="summary-label">Session</span>
+                        <span class="summary-value" id="summary-session">Not started</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Role</span>
+                        <span class="summary-value" id="summary-role">Not set</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Skill</span>
+                        <span class="summary-value" id="summary-skill">Not selected</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Validated Level</span>
+                        <span class="summary-value" id="summary-level">Pending</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Topic</span>
+                        <span class="summary-value" id="summary-topic">Pending</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Schedule</span>
+                        <span class="summary-value" id="summary-schedule">No schedule</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Evaluation</span>
+                        <span class="summary-value" id="summary-eval">Not started</span>
+                    </div>
+                </div>
+
+                <div class="rail-actions">
+                    <button id="restore-result-btn" class="button button-ghost button-full">Restore Saved Result</button>
+                    <button id="load-schedule-btn" class="button button-ghost button-full">Load Schedule</button>
+                </div>
+            </section>
+        </aside>
+
+        <main class="main-stage">
+            <section class="intro-panel">
+                <div class="intro-copy">
+                    <p class="eyebrow">Production Frontend</p>
+                    <h2>One guided workflow for market discovery, learning, and readiness.</h2>
+                    <p>
+                        This frontend talks only to the deployed Flask app. Agent 1 discovers the skill gap, Agent 2 teaches inside a coding lab, and Agent 3 proves readiness with saved results and job-fit signals.
+                    </p>
+                </div>
+                <div class="intro-metrics">
+                    <div class="metric-card">
+                        <span class="metric-label">Discover</span>
+                        <strong>Resume + market gap</strong>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">Learn</span>
+                        <strong>Videos, practice, code</strong>
+                    </div>
+                    <div class="metric-card">
+                        <span class="metric-label">Prove</span>
+                        <strong>Evaluation + jobs</strong>
+                    </div>
+                </div>
+            </section>
+
+            <section id="discover-stage" class="stage-section">
+                <div class="stage-heading">
+                    <div>
+                        <p class="eyebrow">Agent 1</p>
+                        <h2>Discover the right skill gap</h2>
+                    </div>
+                    <p class="stage-copy">Analyze the learner profile, read role-based market demand, identify recommended skills, and validate the starting level before handoff to Agent 2.</p>
+                </div>
+
+                <div class="panel-grid discover-grid">
+                    <article class="panel panel-primary">
+                        <div class="panel-head">
+                            <div>
+                                <p class="eyebrow">Resume Intake</p>
+                                <h3>Profile + target role</h3>
+                            </div>
+                            <span class="panel-badge">Agent 1</span>
+                        </div>
+                        <div class="field-stack">
+                            <label class="field">
+                                <span>Target role</span>
+                                <input id="target-role-input" type="text" value="Backend Developer" placeholder="Backend Developer">
+                            </label>
+                            <div class="chip-row">
+                                <button class="chip-button" data-role-chip="AI Engineer">AI Engineer</button>
+                                <button class="chip-button" data-role-chip="ML Engineer">ML Engineer</button>
+                                <button class="chip-button chip-active" data-role-chip="Backend Developer">Backend Developer</button>
+                                <button class="chip-button" data-role-chip="Full Stack Developer">Full Stack Developer</button>
+                                <button class="chip-button" data-role-chip="Data Scientist">Data Scientist</button>
+                            </div>
+                            <label class="upload-zone" for="resume-file">
+                                <input id="resume-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp">
+                                <span class="material-symbols-outlined">upload_file</span>
+                                <strong>Upload resume</strong>
+                                <small>PDF or image, multipart field name <code>resume</code></small>
+                                <em id="resume-file-name">No file selected</em>
+                            </label>
+                            <div class="action-row">
+                                <button id="analyze-resume-btn" class="button button-primary">Analyze Resume</button>
+                                <button id="fetch-trending-btn" class="button button-secondary">Fetch Trending Skills</button>
+                                <button id="start-skill-gap-btn" class="button button-secondary">Start Skill Gap</button>
+                            </div>
+                            <div id="discover-status" class="inline-status">Start or restore a session, then upload a resume or fetch trending skills.</div>
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <div class="panel-head">
+                            <div>
+                                <p class="eyebrow">Resume Summary</p>
+                                <h3>Extracted learner profile</h3>
+                            </div>
+                        </div>
+                        <div id="resume-summary" class="empty-state compact-empty">
+                            Upload a resume to extract skills, experience level, and domain.
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <div class="panel-head">
+                            <div>
+                                <p class="eyebrow">Market Pulse</p>
+                                <h3>Role-based trending skills</h3>
+                            </div>
+                            <span id="trending-meta" class="subtle-meta">Live signals from current role demand</span>
+                        </div>
+                        <div id="trending-skills" class="card-list empty-state">
+                            Fetch trending skills to see role-relevant market demand.
+                        </div>
+                    </article>
+
+                    <article class="panel panel-wide">
+                        <div class="panel-head">
+                            <div>
+                                <p class="eyebrow">Skill Gap Report</p>
+                                <h3>Async market comparison</h3>
+                            </div>
+                            <span id="skill-gap-meta" class="subtle-meta">Polling every 2 seconds with phase progress</span>
+                        </div>
+                        <div id="skill-gap-status" class="inline-status">Waiting to start skill-gap analysis.</div>
+                        <div id="skill-gap-result" class="empty-state">No skill-gap result yet.</div>
+                    </article>
+
+                    <article class="panel">
+                        <div class="panel-head">
+                            <div>
+                                <p class="eyebrow">Recommended Skills</p>
+                                <h3>Choose what to learn next</h3>
+                            </div>
+                        </div>
+                        <div id="recommended-skills" class="card-list empty-state">
+                            Recommended skills appear here after skill-gap analysis.
+                        </div>
+                    </article>
+
+                    <article class="panel panel-primary">
+                        <div class="panel-head">
+                            <div>
+                                <p class="eyebrow">Level Validation</p>
+                                <h3>Short assessment before learning</h3>
+                            </div>
+                            <span id="assessment-skill-pill" class="panel-badge panel-badge-muted">No skill selected</span>
+                        </div>
+                        <div class="field-stack">
+                            <div class="level-picker" id="declared-level-picker">
+                                <button class="level-pill" data-level="Beginner">Beginner</button>
+                                <button class="level-pill level-pill-active" data-level="Intermediate">Intermediate</button>
+                                <button class="level-pill" data-level="Advanced">Advanced</button>
+                            </div>
+                            <button id="generate-assessment-btn" class="button button-primary">Generate Assessment Questions</button>
+                            <div id="assessment-questions" class="question-stack empty-state">Select a recommended skill and generate questions.</div>
+                            <button id="validate-level-btn" class="button button-secondary">Validate Level</button>
+                            <div id="validated-level-result" class="empty-state compact-empty">Validated level, confidence, and reasoning will appear here.</div>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <section id="learn-stage" class="stage-section">
+                <div class="stage-heading">
+                    <div>
+                        <p class="eyebrow">Agent 2</p>
+                        <h2>Learn in a guided coding lab</h2>
+                    </div>
+                    <p class="stage-copy">Recommend topics inside the selected skill, surface external YouTube resources, generate practice, support hints, optionally create a schedule, and run code through the internal executor.</p>
+                </div>
+
+                <div class="panel-grid learn-grid">
+                    <div class="learn-column learn-column-left">
+                        <article class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <p class="eyebrow">Topic Navigator</p>
+                                    <h3>Recommended topics</h3>
+                                </div>
+                                <button id="fetch-topics-btn" class="button button-secondary button-small">Refresh Topics</button>
+                            </div>
+                            <div id="topics-status" class="inline-status">Agent 2 starts after the skill and validated level are ready.</div>
+                            <div id="topics-list" class="card-list empty-state">No topics yet.</div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <p class="eyebrow">Schedule Choice</p>
+                                    <h3>Optional learning structure</h3>
+                                </div>
+                            </div>
+                            <div class="field-stack">
+                                <div class="mode-toggle">
+                                    <button class="mode-pill mode-pill-active" data-schedule-toggle="none">No Schedule</button>
+                                    <button class="mode-pill" data-schedule-toggle="create">Create Schedule</button>
+                                </div>
+                                <div id="schedule-controls">
+                                    <div class="mode-toggle compact-toggle">
+                                        <button class="mode-pill mode-pill-active" data-schedule-mode="balanced">Balanced</button>
+                                        <button class="mode-pill" data-schedule-mode="deep_learning">Deep Learning</button>
+                                        <button class="mode-pill" data-schedule-mode="fast_track">Fast Track</button>
+                                        <button class="mode-pill" data-schedule-mode="practice_focused">Practice Focused</button>
+                                    </div>
+                                    <label class="field">
+                                        <span>Daily time (minutes)</span>
+                                        <input id="daily-time-input" type="number" min="15" step="15" value="60">
+                                    </label>
+                                    <div class="action-row">
+                                        <button id="generate-schedule-btn" class="button button-primary">Generate Schedule</button>
+                                        <button id="complete-day-btn" class="button button-secondary">Mark Day Complete</button>
+                                    </div>
+                                </div>
+                                <div id="schedule-view" class="empty-state compact-empty">No schedule created yet.</div>
+                            </div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <p class="eyebrow">Video Library</p>
+                                    <h3>External YouTube recommendations</h3>
+                                </div>
+                                <button id="fetch-videos-btn" class="button button-secondary button-small">Fetch Videos</button>
+                            </div>
+                            <div class="mode-toggle compact-toggle" id="duration-picker">
+                                <button class="mode-pill" data-duration="10 min">10 min</button>
+                                <button class="mode-pill mode-pill-active" data-duration="40 min">40 min</button>
+                                <button class="mode-pill" data-duration="60 min">60 min</button>
+                                <button class="mode-pill" data-duration="2 hours">2 hours</button>
+                            </div>
+                            <div id="videos-meta" class="inline-status">This product recommends videos and opens YouTube directly. No in-site player is used.</div>
+                            <div id="videos-list" class="video-grid empty-state">No videos yet.</div>
+                        </article>
+                    </div>
+
+                    <div class="learn-column learn-column-right">
+                        <article class="panel panel-code">
+                            <div class="panel-head">
+                                <div>
+                                    <p class="eyebrow">Coding Workspace</p>
+                                    <h3>Validate and run real code</h3>
+                                </div>
+                                <div class="inline-meta-row">
+                                    <select id="language-select" class="select-control" aria-label="Language"></select>
+                                    <button id="reset-code-btn" class="button button-ghost button-small">Reset Code</button>
+                                </div>
+                            </div>
+                            <div class="code-context">
+                                <span>Skill: <strong id="code-skill-label">Not selected</strong></span>
+                                <span>Topic: <strong id="code-topic-label">Not selected</strong></span>
+                                <span>Video context: <strong id="code-video-label">None</strong></span>
+                            </div>
+                            <div class="code-editor-shell">
+                                <textarea id="code-textarea" class="code-textarea" spellcheck="false" aria-label="Code editor"></textarea>
+                            </div>
+                            <div class="field-stack compact-stack">
+                                <label class="field">
+                                    <span>STDIN (optional)</span>
+                                    <textarea id="stdin-input" rows="3" placeholder="Optional input passed to the program"></textarea>
+                                </label>
+                                <div class="action-row">
+                                    <button id="validate-code-btn" class="button button-secondary">Validate</button>
+                                    <button id="run-code-btn" class="button button-primary">Run</button>
+                                </div>
+                            </div>
+                            <div class="output-grid">
+                                <div class="output-card">
+                                    <div class="output-head">Validation</div>
+                                    <pre id="validation-output" class="output-body">Validation output will appear here.</pre>
+                                </div>
+                                <div class="output-card">
+                                    <div class="output-head">Execution</div>
+                                    <pre id="execution-output" class="output-body">Execution output will appear here.</pre>
+                                </div>
+                            </div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <p class="eyebrow">Practice Pack</p>
+                                    <h3>Questions + mini-lab</h3>
+                                </div>
+                                <div class="action-row action-row-tight">
+                                    <button id="generate-practice-btn" class="button button-primary button-small">Generate Practice</button>
+                                    <button id="evaluate-practice-btn" class="button button-secondary button-small">Evaluate Answers</button>
+                                </div>
+                            </div>
+                            <div id="practice-summary" class="inline-status">Generate a practice pack after choosing a topic.</div>
+                            <div id="practice-questions" class="question-stack empty-state">No practice pack yet.</div>
+                            <div id="mini-lab" class="empty-state compact-empty">Mini-lab details will appear here.</div>
+                            <div id="practice-evaluation" class="empty-state compact-empty">Practice evaluation will appear here.</div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <p class="eyebrow">Hint Ladder</p>
+                                    <h3>Support without giving away the answer</h3>
+                                </div>
+                            </div>
+                            <div class="mode-toggle compact-toggle">
+                                <button class="mode-pill mode-pill-active" data-hint-level="1">Conceptual</button>
+                                <button class="mode-pill" data-hint-level="2">Approach</button>
+                                <button class="mode-pill" data-hint-level="3">Code-direction</button>
+                            </div>
+                            <div class="action-row">
+                                <button id="request-hint-btn" class="button button-secondary">Get Hint</button>
+                            </div>
+                            <div id="hint-output" class="empty-state compact-empty">Hints will appear here and preserve the current code context.</div>
+                        </article>
+                    </div>
+                </div>
+            </section>
+
+            <section id="prove-stage" class="stage-section">
+                <div class="stage-heading">
+                    <div>
+                        <p class="eyebrow">Agent 3</p>
+                        <h2>Prove readiness and connect to jobs</h2>
+                    </div>
+                    <p class="stage-copy">Generate an evaluation pack, score answers with learning context, revisit saved results, and surface job recommendations grounded in readiness.</p>
+                </div>
+
+                <div class="panel-grid prove-grid">
+                    <article class="panel panel-primary">
+                        <div class="panel-head">
+                            <div>
+                                <p class="eyebrow">Evaluation Launcher</p>
+                                <h3>Generate or score the final check</h3>
+                            </div>
+                            <div class="action-row action-row-tight">
+                                <button id="generate-evaluation-btn" class="button button-primary button-small">Generate Evaluation</button>
+                                <button id="score-evaluation-btn" class="button button-secondary button-small">Score Answers</button>
+                            </div>
+                        </div>
+                        <div id="evaluation-meta" class="inline-status">Agent 3 uses the selected skill, validated level, practice summary, and hint usage.</div>
+                        <div id="evaluation-pack" class="question-stack empty-state">No evaluation pack generated yet.</div>
+                    </article>
+
+                    <article class="panel">
+                        <div class="panel-head">
+                            <div>
+                                <p class="eyebrow">Readiness Result</p>
+                                <h3>Mastery, confidence, and next steps</h3>
+                            </div>
+                        </div>
+                        <div id="evaluation-result" class="empty-state">Your scored readiness result will appear here.</div>
+                    </article>
+
+                    <article class="panel panel-wide">
+                        <div class="panel-head">
+                            <div>
+                                <p class="eyebrow">Career Connector</p>
+                                <h3>Relevant job opportunities</h3>
+                            </div>
+                            <div class="action-row action-row-tight">
+                                <button id="fetch-jobs-btn" class="button button-secondary button-small">Fetch Jobs</button>
+                            </div>
+                        </div>
+                        <div id="jobs-list" class="jobs-grid empty-state">Job recommendations appear here after evaluation or manual fetch.</div>
+                    </article>
+                </div>
+            </section>
+        </main>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <nav class="mobile-nav">
+        <a href="#discover-stage" class="mobile-nav-link">Discover</a>
+        <a href="#learn-stage" class="mobile-nav-link">Learn</a>
+        <a href="#prove-stage" class="mobile-nav-link">Prove</a>
+    </nav>
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

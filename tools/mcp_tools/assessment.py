@@ -15,7 +15,7 @@ QUESTION_SCHEMA = {
     "properties": {
         "questions": {
             "type": "array",
-            "minItems": 2,
+            "minItems": 3,
             "maxItems": 3,
             "items": {
                 "type": "object",
@@ -80,11 +80,12 @@ def _generate_json(prompt: str, schema: dict, *, max_output_tokens: int):
 
 def generate_assessment_questions(skill, declared_level, session_id):
     try:
-        prompt = f"""Generate EXACTLY 2 short {declared_level} level validation questions about {skill}.
+        prompt = f"""Generate EXACTLY 3 short {declared_level} level validation questions about {skill}.
 
 Return ONLY valid JSON (no markdown, no code blocks):
 {{
   "questions": [
+    {{"question": "...", "difficulty": "{declared_level}"}},
     {{"question": "...", "difficulty": "{declared_level}"}},
     {{"question": "...", "difficulty": "{declared_level}"}}
   ]
