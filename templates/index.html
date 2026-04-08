@@ -199,6 +199,16 @@
                         <div id="recommended-skills" class="card-list empty-state">
                             Recommended skills appear here after skill-gap analysis.
                         </div>
+                        <div class="field-stack top-gap">
+                            <label class="field">
+                                <span>Manual skill entry</span>
+                                <input id="manual-skill-input" type="text" placeholder="Type a skill to learn, for example React, Python, Docker">
+                            </label>
+                            <div class="action-row">
+                                <button id="use-manual-skill-btn" class="button button-secondary">Use Manual Skill</button>
+                            </div>
+                            <div class="subtle-note">Use this when you want to skip recommended skills and go directly into level validation and Agent 2.</div>
+                        </div>
                     </article>
 
                     <article class="panel panel-primary">
@@ -235,7 +245,7 @@
 
                 <div class="panel-grid learn-grid">
                     <div class="learn-column learn-column-left">
-                        <article class="panel">
+                        <article id="videos-panel" class="panel">
                             <div class="panel-head">
                                 <div>
                                     <p class="eyebrow">Topic Navigator</p>
@@ -299,7 +309,24 @@
                     </div>
 
                     <div class="learn-column learn-column-right">
-                        <article class="panel panel-code">
+                        <article id="practice-panel" class="panel practice-panel">
+                            <div class="panel-head">
+                                <div>
+                                    <p class="eyebrow">Practice Pack</p>
+                                    <h3>Questions + mini-lab</h3>
+                                </div>
+                                <div class="action-row action-row-tight">
+                                    <button id="generate-practice-btn" class="button button-primary button-small">Generate Practice</button>
+                                    <button id="evaluate-practice-btn" class="button button-secondary button-small">Evaluate Answers</button>
+                                </div>
+                            </div>
+                            <div id="practice-summary" class="inline-status">Generate a practice pack after choosing a topic.</div>
+                            <div id="practice-questions" class="question-stack empty-state">No practice pack yet.</div>
+                            <div id="mini-lab" class="empty-state compact-empty">Mini-lab details will appear here.</div>
+                            <div id="practice-evaluation" class="empty-state compact-empty">Practice evaluation will appear here.</div>
+                        </article>
+
+                        <article id="code-panel" class="panel panel-code">
                             <div class="panel-head">
                                 <div>
                                     <p class="eyebrow">Coding Workspace</p>
@@ -315,6 +342,7 @@
                                 <span>Topic: <strong id="code-topic-label">Not selected</strong></span>
                                 <span>Video context: <strong id="code-video-label">None</strong></span>
                             </div>
+                            <div id="runtime-note" class="runtime-note">Loading runtime capabilities...</div>
                             <div class="code-editor-shell">
                                 <textarea id="code-textarea" class="code-textarea" spellcheck="false" aria-label="Code editor"></textarea>
                             </div>
@@ -338,23 +366,6 @@
                                     <pre id="execution-output" class="output-body">Execution output will appear here.</pre>
                                 </div>
                             </div>
-                        </article>
-
-                        <article class="panel">
-                            <div class="panel-head">
-                                <div>
-                                    <p class="eyebrow">Practice Pack</p>
-                                    <h3>Questions + mini-lab</h3>
-                                </div>
-                                <div class="action-row action-row-tight">
-                                    <button id="generate-practice-btn" class="button button-primary button-small">Generate Practice</button>
-                                    <button id="evaluate-practice-btn" class="button button-secondary button-small">Evaluate Answers</button>
-                                </div>
-                            </div>
-                            <div id="practice-summary" class="inline-status">Generate a practice pack after choosing a topic.</div>
-                            <div id="practice-questions" class="question-stack empty-state">No practice pack yet.</div>
-                            <div id="mini-lab" class="empty-state compact-empty">Mini-lab details will appear here.</div>
-                            <div id="practice-evaluation" class="empty-state compact-empty">Practice evaluation will appear here.</div>
                         </article>
 
                         <article class="panel">
@@ -388,18 +399,18 @@
                 </div>
 
                 <div class="panel-grid prove-grid">
-                    <article class="panel panel-primary">
+                    <article id="evaluation-panel" class="panel panel-primary">
                         <div class="panel-head">
                             <div>
                                 <p class="eyebrow">Evaluation Launcher</p>
                                 <h3>Generate or score the final check</h3>
                             </div>
                             <div class="action-row action-row-tight">
-                                <button id="generate-evaluation-btn" class="button button-primary button-small">Generate Evaluation</button>
+                                <button id="generate-evaluation-btn" class="button button-primary button-small">Generate Questions</button>
                                 <button id="score-evaluation-btn" class="button button-secondary button-small">Score Answers</button>
                             </div>
                         </div>
-                        <div id="evaluation-meta" class="inline-status">Agent 3 uses the selected skill, validated level, practice summary, and hint usage.</div>
+                        <div id="evaluation-meta" class="inline-status">Generate a question pack once, answer everything, then use Score Answers to produce the readiness result.</div>
                         <div id="evaluation-pack" class="question-stack empty-state">No evaluation pack generated yet.</div>
                     </article>
 
@@ -431,9 +442,9 @@
     </div>
 
     <nav class="mobile-nav">
-        <a href="#discover-stage" class="mobile-nav-link">Discover</a>
-        <a href="#learn-stage" class="mobile-nav-link">Learn</a>
-        <a href="#prove-stage" class="mobile-nav-link">Prove</a>
+        <a href="#discover-stage" class="mobile-nav-link" data-stage-link="discover-stage">Discover</a>
+        <a href="#learn-stage" class="mobile-nav-link" data-stage-link="learn-stage">Learn</a>
+        <a href="#prove-stage" class="mobile-nav-link" data-stage-link="prove-stage">Prove</a>
     </nav>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

@@ -3,6 +3,7 @@ const GAP_INTERVAL = 2000;
 const GAP_MAX_POLLS = 60;
 
 const defaults = {
+    activeStage: "discover-stage",
     sessionId: null,
     targetRole: "Backend Developer",
     resumeSummary: null,
@@ -64,10 +65,12 @@ const esc = value => String(value ?? "")
 
 const fmt = value => value ? String(value).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "Not set";
 const learnLevel = () => state.validatedLevel?.validated_level || state.declaredLevel;
+const hasValidatedLevel = () => Boolean(state.validatedLevel?.validated_level || state.validatedLevel?.validatedLevel || state.validatedLevel);
 const toggleEmpty = (node, empty) => node && node.classList.toggle("empty-state", empty);
 
 function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        activeStage: state.activeStage,
         sessionId: state.sessionId,
         targetRole: state.targetRole,
         resumeSummary: state.resumeSummary,
@@ -167,6 +170,9 @@ async function task(name, button, fn) {
 function capture() {
     els = {
         toastArea: $("toast-area"),
+        introPanel: document.querySelector(".intro-panel"),
+        stageSections: Array.from(document.querySelectorAll(".stage-section")),
+        stageLinks: Array.from(document.querySelectorAll("[data-stage-link]")),
         sessionPill: $("session-pill"),
         startSessionBtn: $("start-session-btn"),
         restoreResultBtn: $("restore-result-btn"),
@@ -191,6 +197,8 @@ function capture() {
         skillGapStatus: $("skill-gap-status"),
         skillGapResult: $("skill-gap-result"),
         recommendedSkills: $("recommended-skills"),
+        manualSkillInput: $("manual-skill-input"),
+        useManualSkillBtn: $("use-manual-skill-btn"),
         assessmentSkillPill: $("assessment-skill-pill"),
         generateAssessmentBtn: $("generate-assessment-btn"),
         assessmentQuestions: $("assessment-questions"),
@@ -199,6 +207,7 @@ function capture() {
         fetchTopicsBtn: $("fetch-topics-btn"),
         topicsStatus: $("topics-status"),
         topicsList: $("topics-list"),
+        videosPanel: $("videos-panel"),
         dailyTimeInput: $("daily-time-input"),
         scheduleControls: $("schedule-controls"),
         scheduleView: $("schedule-view"),
@@ -207,11 +216,14 @@ function capture() {
         fetchVideosBtn: $("fetch-videos-btn"),
         videosMeta: $("videos-meta"),
         videosList: $("videos-list"),
+        practicePanel: $("practice-panel"),
         languageSelect: $("language-select"),
         resetCodeBtn: $("reset-code-btn"),
         codeSkillLabel: $("code-skill-label"),
         codeTopicLabel: $("code-topic-label"),
         codeVideoLabel: $("code-video-label"),
+        runtimeNote: $("runtime-note"),
+        codePanel: $("code-panel"),
         codeTextarea: $("code-textarea"),
         stdinInput: $("stdin-input"),
         validateCodeBtn: $("validate-code-btn"),
@@ -229,6 +241,7 @@ function capture() {
         generateEvaluationBtn: $("generate-evaluation-btn"),
         scoreEvaluationBtn: $("score-evaluation-btn"),
         evaluationMeta: $("evaluation-meta"),
+        evaluationPanel: $("evaluation-panel"),
         evaluationPack: $("evaluation-pack"),
         evaluationResult: $("evaluation-result"),
         fetchJobsBtn: $("fetch-jobs-btn"),
@@ -249,7 +262,7 @@ function updateSummary() {
     els.summarySession.textContent = state.sessionId || "Not started";
     els.summaryRole.textContent = state.targetRole || "Not set";
     els.summarySkill.textContent = state.selectedSkill || "Not selected";
-    els.summaryLevel.textContent = state.validatedLevel?.validated_level || state.declaredLevel || "Pending";
+    els.summaryLevel.textContent = hasValidatedLevel() ? (state.validatedLevel?.validated_level || state.validatedLevel?.validatedLevel || state.validatedLevel) : (state.selectedSkill ? "Pending" : "Not selected");
     els.summaryTopic.textContent = state.selectedTopic || "Pending";
     els.summarySchedule.textContent = state.schedule?.mode ? fmt(state.schedule.mode) : (state.scheduleChoice === "create" ? "Pending" : "No schedule");
     els.summaryEval.textContent = state.evaluationResult?.readiness || (state.evaluationPack ? "Questions ready" : "Not started");
@@ -260,6 +273,37 @@ function updateSummary() {
     els.codeTopicLabel.textContent = state.selectedTopic || "Not selected";
     els.codeVideoLabel.textContent = state.selectedVideo?.title || "None";
     save();
+}
+
+function setActiveStage(stageId, syncHash = true) {
+    const next = ["discover-stage", "learn-stage", "prove-stage"].includes(stageId) ? stageId : "discover-stage";
+    state.activeStage = next;
+    els.stageSections.forEach(section => section.classList.toggle("is-hidden", section.id !== next));
+    if (els.introPanel) els.introPanel.classList.toggle("is-hidden", next !== "discover-stage");
+    els.stageLinks.forEach(link => {
+        const active = link.dataset.stageLink === next;
+        link.classList.toggle("stage-link-active", active && link.classList.contains("stage-link"));
+        link.classList.toggle("mobile-nav-link-active", active && link.classList.contains("mobile-nav-link"));
+    });
+    if (syncHash && window.location.hash !== `#${next}`) {
+        history.replaceState(null, "", `#${next}`);
+    }
+    save();
+}
+
+function requireValidatedSkill(message, stageId = "discover-stage") {
+    if (!state.selectedSkill) {
+        toast("Skill required", "Select a skill first in Agent 1.", "error");
+        setActiveStage(stageId);
+        return false;
+    }
+    if (!hasValidatedLevel()) {
+        setStatus(els.discoverStatus, message || "Validate the selected skill level in Agent 1 before continuing.", "warning");
+        toast("Validation required", "Complete Agent 1 level validation before continuing.", "error");
+        setActiveStage(stageId);
+        return false;
+    }
+    return true;
 }
 
 function tagList(items, tone = "") {
@@ -385,12 +429,27 @@ function renderHint() {
 function renderCode() {
     els.languageSelect.innerHTML = !state.executionConfig?.languages?.length ? `<option value="">No languages loaded</option>` : state.executionConfig.languages.map(lang => `<option value="${esc(lang.id)}">${esc(lang.label)}</option>`).join("");
     if (state.currentLanguage) els.languageSelect.value = state.currentLanguage;
+    if (els.runtimeNote) {
+        const notes = Array.isArray(state.executionConfig?.runtime_notes) ? state.executionConfig.runtime_notes : [];
+        const pythonPackages = Array.isArray(state.executionConfig?.preinstalled_python_packages) ? state.executionConfig.preinstalled_python_packages : [];
+        if (notes.length) {
+            const packageText = pythonPackages.length ? ` Available Python libs: ${pythonPackages.join(", ")}.` : "";
+            els.runtimeNote.textContent = `${notes.join(" ")}${packageText}`;
+            els.runtimeNote.dataset.state = "default";
+        } else {
+            els.runtimeNote.textContent = "Runtime capabilities will appear here after the execution config loads.";
+            els.runtimeNote.dataset.state = "warning";
+        }
+    }
     els.codeTextarea.value = state.code || "";
     els.validationOutput.textContent = state.validationOutput;
     els.executionOutput.textContent = state.executionOutput;
 }
 
 function renderEvaluation() {
+    if (els.generateEvaluationBtn) {
+        els.generateEvaluationBtn.textContent = state.evaluationPack?.questions?.length ? "Regenerate Questions" : "Generate Questions";
+    }
     toggleEmpty(els.evaluationPack, !state.evaluationPack?.questions?.length);
     els.evaluationPack.innerHTML = !state.evaluationPack?.questions?.length ? "No evaluation pack generated yet." : state.evaluationPack.questions.map((q, i) => questionMarkup(q, state.evaluationAnswers[i] || "", i, "evaluation")).join("");
     if (!state.evaluationResult) {
@@ -412,6 +471,7 @@ function renderJobs() {
 
 function render() {
     els.targetRoleInput.value = state.targetRole || "";
+    if (els.manualSkillInput) els.manualSkillInput.value = state.selectedSkill || "";
     renderResume();
     renderGap();
     renderTrending();
@@ -482,6 +542,7 @@ async function handleStartSession() {
     await task("start-session", els.startSessionBtn, async () => {
         try {
             await ensureSession(Boolean(state.sessionId));
+            setActiveStage("discover-stage");
             setStatus(els.discoverStatus, "Session ready. Resume analysis and skill-gap discovery can start now.", "success");
         } catch (error) {
             setStatus(els.discoverStatus, error.message, "error");
@@ -580,11 +641,21 @@ async function handleSkillGap() {
 }
 
 function applySkill(skill) {
-    state.selectedSkill = skill;
+    const normalized = String(skill || "").trim();
+    if (!normalized) return;
+    state.selectedSkill = normalized;
+    if (els.manualSkillInput) els.manualSkillInput.value = normalized;
+    state.assessmentQuestions = [];
+    state.assessmentAnswers = [];
+    state.validatedLevel = null;
     state.selectedTopic = null;
     state.topics = [];
+    state.knownTopics = [];
+    state.excludedTopics = [];
     state.videos = [];
     state.selectedVideo = null;
+    state.schedule = null;
+    state.scheduleChoice = "none";
     state.practicePack = null;
     state.practiceAnswers = [];
     state.practiceEvaluation = null;
@@ -594,7 +665,17 @@ function applySkill(skill) {
     state.evaluationResult = null;
     state.jobs = [];
     render();
-    setStatus(els.discoverStatus, `${skill} selected. Choose a declared level and validate it before entering Agent 2.`, "success");
+    setStatus(els.discoverStatus, `${normalized} selected. Choose a declared level and validate it before entering Agent 2.`, "success");
+    setStatus(els.topicsStatus, "Generate a fresh level validation, then fetch topics for the selected skill.", "warning");
+}
+
+function handleManualSkill() {
+    const value = els.manualSkillInput?.value?.trim();
+    if (!value) {
+        setStatus(els.discoverStatus, "Enter a skill name before using manual skill entry.", "warning");
+        return;
+    }
+    applySkill(value);
 }
 
 async function handleAssessment() {
@@ -633,6 +714,7 @@ async function handleLevelValidation() {
             state.validatedLevel = await api("/api/validate-level", { method: "POST", body: { session_id: state.sessionId, answers: state.assessmentAnswers, questions: state.assessmentQuestions, declared_level: state.declaredLevel } });
             setStatus(els.discoverStatus, `Validated level: ${state.validatedLevel.validated_level}. Agent 2 is ready.`, "success");
             render();
+            setActiveStage("learn-stage");
         } catch (error) {
             setStatus(els.discoverStatus, error.message, "error");
             toast("Level validation failed", error.message, "error");
@@ -642,7 +724,7 @@ async function handleLevelValidation() {
 
 async function handleTopics(extra = []) {
     await task("topics", els.fetchTopicsBtn, async () => {
-        if (!state.selectedSkill) {
+        if (!requireValidatedSkill("Validate the selected skill level in Agent 1 before requesting Agent 2 topics.")) {
             setStatus(els.topicsStatus, "Select and validate a skill in Agent 1 first.", "warning");
             return;
         }
@@ -664,6 +746,10 @@ async function handleTopics(extra = []) {
 
 async function handleVideos() {
     await task("videos", els.fetchVideosBtn, async () => {
+        if (!requireValidatedSkill("Validate the selected skill level in Agent 1 before fetching videos.")) {
+            setStatus(els.videosMeta, "Validate the skill level in Agent 1 first.", "warning");
+            return;
+        }
         if (!state.selectedSkill || !state.selectedTopic) {
             setStatus(els.videosMeta, "Choose a skill and topic before fetching videos.", "warning");
             return;
@@ -673,6 +759,7 @@ async function handleVideos() {
             const data = await api("/api/videos", { method: "POST", body: { skill: state.selectedSkill, level: learnLevel(), topic: state.selectedTopic, preferred_duration: state.preferredDuration, max_results: 12 } });
             state.videos = Array.isArray(data.videos) ? data.videos : [];
             render();
+            els.videosPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (error) {
             setStatus(els.videosMeta, error.message, "error");
             toast("Video fetch failed", error.message, "error");
@@ -682,6 +769,10 @@ async function handleVideos() {
 
 async function handlePractice() {
     await task("practice", els.generatePracticeBtn, async () => {
+        if (!requireValidatedSkill("Validate the selected skill level in Agent 1 before generating practice.")) {
+            setStatus(els.practiceSummary, "Validate the skill level in Agent 1 first.", "warning");
+            return;
+        }
         if (!state.selectedSkill || !state.selectedTopic) {
             setStatus(els.practiceSummary, "Choose a skill and topic before generating practice.", "warning");
             return;
@@ -699,6 +790,7 @@ async function handlePractice() {
                 state.starterCode = state.practicePack.mini_lab.starter_code;
             }
             render();
+            els.practicePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (error) {
             setStatus(els.practiceSummary, error.message, "error");
             toast("Practice generation failed", error.message, "error");
@@ -730,6 +822,9 @@ async function handlePracticeEvaluation() {
 
 async function handleHint() {
     await task("hint", els.requestHintBtn, async () => {
+        if (!requireValidatedSkill("Validate the selected skill level in Agent 1 before requesting hints.")) {
+            return;
+        }
         if (!state.selectedSkill || !state.selectedTopic) {
             toast("Hint unavailable", "Pick a skill and topic before requesting a hint.", "error");
             return;
@@ -746,6 +841,9 @@ async function handleHint() {
 
 async function handleValidateCode() {
     await task("code-validate", els.validateCodeBtn, async () => {
+        if (!requireValidatedSkill("Validate the selected skill level in Agent 1 before using the coding workspace.")) {
+            return;
+        }
         if (!state.code.trim()) {
             state.validationOutput = "Add code before validating.";
             renderCode();
@@ -767,6 +865,9 @@ async function handleValidateCode() {
 
 async function handleRunCode() {
     await task("code-run", els.runCodeBtn, async () => {
+        if (!requireValidatedSkill("Validate the selected skill level in Agent 1 before running code.")) {
+            return;
+        }
         if (!state.code.trim()) {
             state.executionOutput = "Add code before running.";
             renderCode();
@@ -796,7 +897,7 @@ async function handleSchedule() {
             els.scheduleView.innerHTML = "Schedule creation is off. Switch to Create Schedule to generate one.";
             return;
         }
-        if (!state.selectedSkill) {
+        if (!requireValidatedSkill("Validate the selected skill level in Agent 1 before generating a schedule.")) {
             toast("Schedule unavailable", "Select and validate a skill before generating a schedule.", "error");
             return;
         }
@@ -823,6 +924,7 @@ async function handleLoadSchedule() {
             state.schedule = await api(`/api/schedule/${encodeURIComponent(state.sessionId)}`);
             state.scheduleChoice = "create";
             render();
+            setActiveStage("learn-stage");
             toast("Schedule restored", "Saved schedule loaded from the backend.", "success");
         } catch (error) {
             toast("Schedule load failed", error.message, "error");
@@ -848,7 +950,7 @@ async function handleCompleteDay() {
 
 async function handleEvaluation() {
     await task("evaluation-generate", els.generateEvaluationBtn, async () => {
-        if (!state.selectedSkill) {
+        if (!requireValidatedSkill("Validate the selected skill level in Agent 1 before starting Agent 3 evaluation.")) {
             setStatus(els.evaluationMeta, "Select and validate a skill before Agent 3 evaluation.", "warning");
             return;
         }
@@ -857,8 +959,10 @@ async function handleEvaluation() {
             setStatus(els.evaluationMeta, "Generating readiness evaluation pack...", "loading");
             state.evaluationPack = await api("/api/evaluate", { method: "POST", body: { session_id: state.sessionId, skill: state.selectedSkill, level: learnLevel(), question_count: 5 } });
             state.evaluationAnswers = new Array(state.evaluationPack.questions?.length || 0).fill("");
+            state.evaluationResult = null;
             setStatus(els.evaluationMeta, "Evaluation questions generated. Score them when the answers are ready.", "success");
             render();
+            els.evaluationPack?.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (error) {
             setStatus(els.evaluationMeta, error.message, "error");
             toast("Evaluation generation failed", error.message, "error");
@@ -881,6 +985,7 @@ async function handleEvaluationScore() {
             state.evaluationResult = await api("/api/evaluate", { method: "POST", body: { session_id: state.sessionId, skill: state.selectedSkill, level: learnLevel(), questions: state.evaluationPack.questions, answers: state.evaluationAnswers, practice_summary: state.practiceEvaluation || state.practicePack?.practice_summary || null } });
             setStatus(els.evaluationMeta, "Evaluation scored. Readiness result is now saved and visible.", "success");
             render();
+            els.evaluationResult?.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (error) {
             setStatus(els.evaluationMeta, error.message, "error");
             toast("Evaluation scoring failed", error.message, "error");
@@ -890,7 +995,7 @@ async function handleEvaluationScore() {
 
 async function handleJobs() {
     await task("jobs", els.fetchJobsBtn, async () => {
-        if (!state.selectedSkill) {
+        if (!requireValidatedSkill("Validate the selected skill level in Agent 1 before fetching jobs.")) {
             toast("Jobs unavailable", "Select and validate a skill before requesting job matches.", "error");
             return;
         }
@@ -914,6 +1019,7 @@ async function handleRestoreResult() {
         try {
             state.evaluationResult = await api(`/api/results/${encodeURIComponent(state.sessionId)}`);
             render();
+            setActiveStage("prove-stage");
             toast("Result restored", "Saved readiness result loaded successfully.", "success");
         } catch (error) {
             toast("Restore failed", error.message, "error");
@@ -922,9 +1028,9 @@ async function handleRestoreResult() {
 }
 
 function bind() {
-    document.querySelectorAll("[data-stage-link]").forEach(link => link.addEventListener("click", () => {
-        document.querySelectorAll("[data-stage-link]").forEach(item => item.classList.remove("stage-link-active"));
-        link.classList.add("stage-link-active");
+    els.stageLinks.forEach(link => link.addEventListener("click", event => {
+        event.preventDefault();
+        setActiveStage(link.dataset.stageLink);
     }));
     els.startSessionBtn.addEventListener("click", handleStartSession);
     els.restoreResultBtn.addEventListener("click", handleRestoreResult);
@@ -948,9 +1054,16 @@ function bind() {
     els.generateEvaluationBtn.addEventListener("click", handleEvaluation);
     els.scoreEvaluationBtn.addEventListener("click", handleEvaluationScore);
     els.fetchJobsBtn.addEventListener("click", handleJobs);
+    els.useManualSkillBtn.addEventListener("click", handleManualSkill);
     els.resetCodeBtn.addEventListener("click", () => { state.code = state.starterCode || ""; renderCode(); save(); });
     els.codeTextarea.addEventListener("input", event => { state.code = event.target.value; save(); });
     els.languageSelect.addEventListener("change", event => { state.currentLanguage = event.target.value; seedStarter(); renderCode(); save(); });
+    els.manualSkillInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            handleManualSkill();
+        }
+    });
 
     document.querySelectorAll("[data-role-chip]").forEach(btn => btn.addEventListener("click", () => { state.targetRole = btn.dataset.roleChip; els.targetRoleInput.value = state.targetRole; setInitialSelections(); updateSummary(); }));
     document.querySelectorAll("[data-level]").forEach(btn => btn.addEventListener("click", () => { state.declaredLevel = btn.dataset.level; setInitialSelections(); updateSummary(); }));
@@ -985,6 +1098,7 @@ function bind() {
         state.starterCode = state.practicePack.mini_lab.starter_code;
         renderCode();
         save();
+        els.codePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
         toast("Starter code loaded", "The mini-lab starter code has been placed in the workspace.", "success");
     });
 
@@ -1001,6 +1115,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     load();
     setInitialSelections();
     bind();
+    const initialStage = window.location.hash ? window.location.hash.slice(1) : state.activeStage;
+    setActiveStage(initialStage, false);
     render();
     if (state.sessionId) setStatus(els.discoverStatus, `Restored session ${state.sessionId}.`, "success");
     await loadExecutionConfig();

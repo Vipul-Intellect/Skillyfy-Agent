@@ -55,6 +55,7 @@ LANGUAGE_CONFIG = {
 }
 
 PRIMARY_EDITOR_LANGUAGES = ["python", "javascript", "typescript", "java", "cpp"]
+PREINSTALLED_PYTHON_PACKAGES = ["pandas", "numpy", "scikit-learn"]
 
 
 def normalize_language(language: str) -> str:
@@ -81,6 +82,13 @@ def get_execution_config() -> dict:
         "executor": "custom_cloud_run_executor",
         "supports_stdin": True,
         "supports_validation": True,
+        "supports_package_install": False,
+        "preinstalled_python_packages": PREINSTALLED_PYTHON_PACKAGES,
+        "runtime_notes": [
+            "Uses built-in language runtimes",
+            "Python includes preinstalled data libraries: pandas, numpy, scikit-learn",
+            "External package installation is not supported in the execution flow",
+        ],
         "run_timeout_seconds": 5,
     }
 

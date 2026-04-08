@@ -15,6 +15,20 @@ _hint_usage_memory = {}
 _hint_lock = threading.Lock()
 _active_practice_memory = {}
 _practice_lock = threading.Lock()
+_SUPPORTED_PYTHON_PACKAGES = {"pandas", "numpy", "scikit-learn"}
+_UNSUPPORTED_PACKAGE_TOKENS = [
+    "pip install",
+    "conda install",
+    "npm install",
+    "yarn add",
+    "pnpm add",
+    "tensorflow",
+    "matplotlib",
+    "seaborn",
+    "pyspark",
+    "polars",
+    "torch",
+]
 
 
 def _get_client():
@@ -22,6 +36,45 @@ def _get_client():
     if _client is None:
         _client = genai.Client(api_key=settings.GEMINI_API_KEY)
     return _client
+
+
+def _unsupported_runtime_reason(result: dict, language: str) -> str | None:
+    payload = json.dumps(result, ensure_ascii=False).lower()
+    for token in _UNSUPPORTED_PACKAGE_TOKENS:
+        if token in payload:
+            return f"Practice output referenced an unsupported external dependency: {token}"
+    if (language or "").strip().lower() == "python":
+        unsupported_python_packages = ["tensorflow", "torch", "matplotlib", "seaborn", "polars", "pyspark"]
+        if any(token in payload for token in unsupported_python_packages):
+            return "Practice output depends on Python packages that are not available in the executor."
+    return None
+
+
+def _unsupported_dependency_guidance(skill: str, topic: str, hint_level: int, code: str, error: str) -> dict | None:
+    combined = f"{code}\n{error}".lower()
+    package_markers = ["no module named", "cannot find module", "module not found"]
+    if not any(token in combined for token in package_markers):
+        return None
+
+    supported_missing = any(package in combined for package in _SUPPORTED_PYTHON_PACKAGES)
+    if supported_missing:
+        return {
+            "hint": "This exercise is allowed to use the preinstalled Python data libraries. If the runtime still reports a missing package, refresh onto the latest executor revision or keep the logic focused on the data transformation itself.",
+            "question": "What transformation or check should your code perform once the input data is available?",
+            "next_focus": "Core data-processing logic",
+            "hint_level": hint_level,
+            "topic": topic,
+            "skill": skill,
+        }
+
+    return {
+        "hint": "This runtime does not install new packages during execution. Keep the solution within the preinstalled environment or rewrite it using built-in language features.",
+        "question": "Can you solve the core task without adding a new library to the runtime?",
+        "next_focus": "Stay within the available runtime environment",
+        "hint_level": hint_level,
+        "topic": topic,
+        "skill": skill,
+    }
 
 
 def _persist_session_async(session_id: str, data: dict):
@@ -173,6 +226,9 @@ Rules:
 - Focus on practical understanding, debugging, and applied use.
 - Questions should be concise, high-quality, and clearly related to the topic just studied.
 - Avoid generic textbook prompts when a more realistic scenario can be used.
+- Assume the executor uses the built-in runtime.
+- For Python tasks, you may use these preinstalled libraries when genuinely relevant: pandas, numpy, scikit-learn.
+- Do not require any other package or any install/download step.
 - Level-specific question style: {selected_rules["question_style"]}.
 - Level-specific mini-lab style: {selected_rules["lab_style"]}.
 - The mini-lab should be solvable in about {selected_rules["minutes"]} minutes.
@@ -197,6 +253,9 @@ Rules:
             result = response.parsed or {}
             if not result.get("questions") or not result.get("mini_lab"):
                 raise ValueError("Practice generator returned incomplete output")
+            unsupported_reason = _unsupported_runtime_reason(result, language)
+            if unsupported_reason:
+                raise ValueError(unsupported_reason)
         except Exception as e:
             logger.warning(f"Practice generation fell back to deterministic pack for {session_id}: {e}")
             result = _fallback_practice_pack(skill, topic, level, language, video_context)
@@ -551,6 +610,10 @@ def get_socratic_hint(
         hint_level = int(hint_level or 1)
         hint_level = max(1, min(hint_level, 3))
 
+        deterministic_guidance = _unsupported_dependency_guidance(skill, topic, hint_level, code, error)
+        if deterministic_guidance:
+            return deterministic_guidance
+
         hint_type = {
             1: "Give a conceptual hint about the underlying principle.",
             2: "Suggest the right approach and sequence of steps without giving the solution.",
@@ -580,6 +643,8 @@ Rules:
 - If you include code, keep it to at most 2 lines.
 - The final question must push the learner to think about the next step.
 - Tailor the hint to the user's current code/error if provided.
+- Do not suggest installing packages, downloading modules, or changing the runtime environment from the UI.
+- Assume Python already includes pandas, numpy, and scikit-learn if the exercise genuinely needs them.
 """
 
         if code:

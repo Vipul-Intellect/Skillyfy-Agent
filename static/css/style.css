@@ -18,7 +18,7 @@
     --shadow-md: 0 20px 48px rgba(0, 0, 0, 0.22);
     --radius: 22px;
     --radius-sm: 14px;
-    --max-width: 1480px;
+    --max-width: 1540px;
 }
 
 * {
@@ -202,8 +202,8 @@ select:focus {
 
 .app-shell {
     display: grid;
-    grid-template-columns: 320px minmax(0, 1fr);
-    gap: 1.5rem;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 1.4rem;
     width: min(calc(100% - 2.6rem), var(--max-width));
     margin: 0 auto;
     padding: 1.6rem 0 6rem;
@@ -229,6 +229,8 @@ select:focus {
 
 .summary-card {
     padding: 1.35rem;
+    max-height: calc(100vh - 8rem);
+    overflow: auto;
 }
 
 .card-header,
@@ -419,6 +421,11 @@ select:focus {
 .stage-section {
     padding-top: 1rem;
     margin-bottom: 2rem;
+    scroll-margin-top: 7rem;
+}
+
+.is-hidden {
+    display: none !important;
 }
 
 .stage-heading {
@@ -442,7 +449,7 @@ select:focus {
 
 .panel-grid {
     display: grid;
-    gap: 1rem;
+    gap: 1.15rem;
 }
 
 .discover-grid {
@@ -528,6 +535,10 @@ select:focus {
 .question-stack {
     display: grid;
     gap: 0.9rem;
+}
+
+.top-gap {
+    margin-top: 1rem;
 }
 
 .field {
@@ -623,6 +634,12 @@ select:focus {
     line-height: 1.5;
 }
 
+.subtle-note {
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
 .inline-status[data-state="loading"] {
     color: var(--primary);
     border-color: rgba(70, 209, 168, 0.18);
@@ -664,7 +681,7 @@ select:focus {
 }
 
 .video-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .jobs-grid {
@@ -887,6 +904,21 @@ select:focus {
     margin-bottom: 0.9rem;
 }
 
+.runtime-note {
+    margin-bottom: 0.9rem;
+    padding: 0.78rem 0.9rem;
+    border-radius: 14px;
+    border: 1px solid rgba(241, 186, 75, 0.16);
+    background: rgba(241, 186, 75, 0.08);
+    color: var(--text-soft);
+    line-height: 1.5;
+}
+
+.runtime-note[data-state="warning"] {
+    border-color: rgba(255, 121, 92, 0.22);
+    background: rgba(255, 121, 92, 0.08);
+}
+
 .panel-code {
     background:
         radial-gradient(circle at top right, rgba(70, 209, 168, 0.12), transparent 25%),
@@ -920,7 +952,7 @@ select:focus {
 }
 
 .code-textarea {
-    min-height: 360px;
+    min-height: 300px;
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -951,7 +983,7 @@ select:focus {
 }
 
 .output-body {
-    min-height: 180px;
+    min-height: 140px;
     margin: 0;
     padding: 1rem;
     color: var(--text-soft);
@@ -1068,6 +1100,13 @@ select:focus {
     }
 }
 
+@media (max-width: 1360px) {
+    .video-grid,
+    .jobs-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 @media (max-width: 900px) {
     .topbar {
         grid-template-columns: 1fr;
@@ -1132,11 +1171,16 @@ select:focus {
         box-shadow: var(--shadow-md);
     }
 
-    .mobile-nav-link {
+.mobile-nav-link {
         padding: 0.75rem 0.9rem;
         border-radius: 999px;
         color: var(--text-soft);
         font-size: 0.88rem;
+    }
+
+    .mobile-nav-link-active {
+        color: var(--bg);
+        background: linear-gradient(135deg, var(--primary), var(--primary-strong));
     }
 
     .action-row,
@@ -1151,5 +1195,18 @@ select:focus {
     .button,
     .video-actions .button {
         width: 100%;
+    }
+}
+
+@media (max-width: 1440px) {
+    .learn-column-left,
+    .learn-column-right {
+        grid-column: span 12;
+    }
+
+    .prove-grid > :nth-child(1),
+    .prove-grid > :nth-child(2),
+    .prove-grid > :nth-child(3) {
+        grid-column: span 12;
     }
 }
