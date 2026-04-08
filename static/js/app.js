@@ -70,7 +70,7 @@ const toggleEmpty = (node, empty) => node && node.classList.toggle("empty-state"
 const friendlyError = error => {
     const message = String(error?.message || error || "Unknown error");
     if (/no response from tool/i.test(message)) {
-        return "The evaluator did not return in time. Try Generate Questions once more.";
+        return "The evaluator did not return in time.";
     }
     return message;
 };
@@ -1010,7 +1010,7 @@ async function handleEvaluation() {
             state.evaluationResult = null;
             render();
             const message = friendlyError(error);
-            setStatus(els.evaluationMeta, `Evaluation generation failed: ${message}`, "error");
+            setStatus(els.evaluationMeta, `Evaluation generation failed: ${message} Try Generate Questions again.`, "error");
             toast("Evaluation generation failed", message, "error");
         }
     });
@@ -1034,7 +1034,7 @@ async function handleEvaluationScore() {
             els.evaluationResult?.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (error) {
             const message = friendlyError(error);
-            setStatus(els.evaluationMeta, `Evaluation failed: ${message}`, "error");
+            setStatus(els.evaluationMeta, `Evaluation did not finish: ${message} Your answers are still preserved below. Tap Submit Final Evaluation once more.`, "warning");
             toast("Evaluation scoring failed", message, "error");
         }
     });
