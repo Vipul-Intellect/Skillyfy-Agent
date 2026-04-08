@@ -402,6 +402,11 @@ function renderVideos() {
 }
 
 function renderPractice() {
+    if (els.evaluatePracticeBtn) {
+        const hasPracticeQuestions = Boolean(state.practicePack?.questions?.length);
+        els.evaluatePracticeBtn.textContent = "Submit Practice Answers";
+        els.evaluatePracticeBtn.disabled = !hasPracticeQuestions;
+    }
     if (!state.practicePack) {
         toggleEmpty(els.practiceQuestions, true);
         toggleEmpty(els.miniLab, true);
@@ -454,17 +459,26 @@ function renderCode() {
 }
 
 function renderEvaluation() {
+    const hasQuestions = Boolean(state.evaluationPack?.questions?.length);
     if (els.generateEvaluationBtn) {
-        const hasQuestions = Boolean(state.evaluationPack?.questions?.length);
         els.generateEvaluationBtn.textContent = hasQuestions ? "Questions Ready" : "Generate Questions";
         els.generateEvaluationBtn.disabled = hasQuestions;
     }
     if (els.scoreEvaluationBtn) {
-        els.scoreEvaluationBtn.textContent = "Evaluate Answers";
-        els.scoreEvaluationBtn.disabled = !state.evaluationPack?.questions?.length;
+        els.scoreEvaluationBtn.textContent = "Submit Final Evaluation";
+        els.scoreEvaluationBtn.disabled = !hasQuestions;
     }
-    toggleEmpty(els.evaluationPack, !state.evaluationPack?.questions?.length);
-    els.evaluationPack.innerHTML = !state.evaluationPack?.questions?.length ? "No evaluation pack generated yet." : state.evaluationPack.questions.map((q, i) => questionMarkup(q, state.evaluationAnswers[i] || "", i, "evaluation")).join("");
+    if (els.evaluationMeta) {
+        if (state.evaluationResult) {
+            setStatus(els.evaluationMeta, "Evaluation complete. Readiness result is saved and visible below.", "success");
+        } else if (hasQuestions) {
+            setStatus(els.evaluationMeta, "Evaluation questions are ready below. Answer them, then use Submit Final Evaluation.", "success");
+        } else if (!els.evaluationMeta.dataset.state || els.evaluationMeta.dataset.state === "success") {
+            setStatus(els.evaluationMeta, "Generate a question pack once, answer everything, then use Submit Final Evaluation to produce the readiness result.", "default");
+        }
+    }
+    toggleEmpty(els.evaluationPack, !hasQuestions);
+    els.evaluationPack.innerHTML = !hasQuestions ? "No evaluation pack generated yet." : state.evaluationPack.questions.map((q, i) => questionMarkup(q, state.evaluationAnswers[i] || "", i, "evaluation")).join("");
     if (!state.evaluationResult) {
         toggleEmpty(els.evaluationResult, true);
         els.evaluationResult.innerHTML = "Your scored readiness result will appear here.";
@@ -968,7 +982,7 @@ async function handleEvaluation() {
             return;
         }
         if (state.evaluationPack?.questions?.length) {
-            setStatus(els.evaluationMeta, "Evaluation questions are already ready below. Answer them and use Evaluate Answers.", "success");
+            setStatus(els.evaluationMeta, "Evaluation questions are already ready below. Answer them and use Submit Final Evaluation.", "success");
             els.evaluationPack?.scrollIntoView({ behavior: "smooth", block: "start" });
             return;
         }
@@ -982,7 +996,7 @@ async function handleEvaluation() {
             state.evaluationPack = await api("/api/evaluate", { method: "POST", body: { session_id: state.sessionId, skill: state.selectedSkill, level: learnLevel(), question_count: 5 } });
             state.evaluationAnswers = new Array(state.evaluationPack.questions?.length || 0).fill("");
             state.evaluationResult = null;
-            setStatus(els.evaluationMeta, "Evaluation questions generated. Use Evaluate Answers when the responses are ready.", "success");
+            setStatus(els.evaluationMeta, "Evaluation questions generated. Use Submit Final Evaluation when the responses are ready.", "success");
             render();
             els.evaluationPack?.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (error) {
@@ -1004,7 +1018,7 @@ async function handleEvaluationScore() {
             return;
         }
         if (state.evaluationAnswers.some(answer => !String(answer || "").trim())) {
-            setStatus(els.evaluationMeta, "Answer all evaluation questions before evaluation.", "warning");
+            setStatus(els.evaluationMeta, "Answer all evaluation questions before final evaluation.", "warning");
             return;
         }
         try {
