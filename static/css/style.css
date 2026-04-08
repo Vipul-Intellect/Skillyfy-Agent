@@ -18,7 +18,7 @@
     --shadow-md: 0 20px 48px rgba(0, 0, 0, 0.22);
     --radius: 22px;
     --radius-sm: 14px;
-    --max-width: 1540px;
+    --max-width: 1480px;
 }
 
 * {
@@ -32,6 +32,7 @@ html {
 body {
     margin: 0;
     min-height: 100vh;
+    overflow-x: hidden;
     color: var(--text);
     font-family: "Plus Jakarta Sans", sans-serif;
     background:
@@ -202,11 +203,11 @@ select:focus {
 
 .app-shell {
     display: grid;
-    grid-template-columns: 280px minmax(0, 1fr);
-    gap: 1.4rem;
-    width: min(calc(100% - 2.6rem), var(--max-width));
+    grid-template-columns: 252px minmax(0, 1fr);
+    gap: 1rem;
+    width: min(calc(100% - 1.6rem), var(--max-width));
     margin: 0 auto;
-    padding: 1.6rem 0 6rem;
+    padding: 1.15rem 0 5rem;
 }
 
 .summary-rail {
@@ -228,7 +229,7 @@ select:focus {
 }
 
 .summary-card {
-    padding: 1.35rem;
+    padding: 1.15rem;
     max-height: calc(100vh - 8rem);
     overflow: auto;
 }
@@ -368,9 +369,9 @@ select:focus {
 .intro-panel {
     display: grid;
     grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
-    gap: 1.5rem;
-    padding: 1.6rem;
-    margin-bottom: 1.5rem;
+    gap: 1.1rem;
+    padding: 1.3rem;
+    margin-bottom: 1.2rem;
     overflow: hidden;
     position: relative;
 }
@@ -449,7 +450,7 @@ select:focus {
 
 .panel-grid {
     display: grid;
-    gap: 1.15rem;
+    gap: 1rem;
 }
 
 .discover-grid {
@@ -482,13 +483,15 @@ select:focus {
     align-content: start;
 }
 
-.prove-grid > :nth-child(1) { grid-column: span 5; }
-.prove-grid > :nth-child(2) { grid-column: span 7; }
-.prove-grid > :nth-child(3) { grid-column: span 12; }
+.prove-grid > :nth-child(1),
+.prove-grid > :nth-child(2),
+.prove-grid > :nth-child(3) {
+    grid-column: span 12;
+}
 
 .panel {
     min-width: 0;
-    padding: 1.35rem;
+    padding: 1.15rem;
 }
 
 .panel-primary {
@@ -681,11 +684,11 @@ select:focus {
 }
 
 .video-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .jobs-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .skill-card,
@@ -894,7 +897,7 @@ select:focus {
 
 .video-actions .button {
     flex: 1;
-    min-width: 140px;
+    min-width: 0;
 }
 
 .code-context {
@@ -927,7 +930,7 @@ select:focus {
 
 .select-control {
     width: auto;
-    min-width: 160px;
+    min-width: 0;
 }
 
 .code-editor-shell {
@@ -952,7 +955,7 @@ select:focus {
 }
 
 .code-textarea {
-    min-height: 300px;
+    min-height: 240px;
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -983,7 +986,7 @@ select:focus {
 }
 
 .output-body {
-    min-height: 140px;
+    min-height: 120px;
     margin: 0;
     padding: 1rem;
     color: var(--text-soft);
@@ -1066,7 +1069,14 @@ select:focus {
     display: none !important;
 }
 
-@media (max-width: 1240px) {
+@media (min-width: 1580px) {
+    .video-grid,
+    .jobs-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1600px) {
     .app-shell {
         grid-template-columns: 1fr;
     }
@@ -1080,17 +1090,28 @@ select:focus {
         top: 0;
     }
 
-    .intro-panel,
-    .stage-heading {
+    .summary-card {
+        max-height: none;
+        overflow: visible;
+    }
+
+    .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .rail-actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .intro-panel {
         grid-template-columns: 1fr;
     }
 
-    .discover-grid > :nth-child(1),
-    .discover-grid > :nth-child(2),
-    .discover-grid > :nth-child(3),
-    .discover-grid > :nth-child(4),
-    .discover-grid > :nth-child(5),
-    .discover-grid > :nth-child(6),
+    .stage-heading {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
     .learn-column-left,
     .learn-column-right,
     .prove-grid > :nth-child(1),
@@ -1100,14 +1121,18 @@ select:focus {
     }
 }
 
-@media (max-width: 1360px) {
-    .video-grid,
-    .jobs-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 1400px) {
+    .discover-grid > :nth-child(1),
+    .discover-grid > :nth-child(2),
+    .discover-grid > :nth-child(3),
+    .discover-grid > :nth-child(4),
+    .discover-grid > :nth-child(5),
+    .discover-grid > :nth-child(6) {
+        grid-column: span 12;
     }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1120px) {
     .topbar {
         grid-template-columns: 1fr;
     }
@@ -1125,7 +1150,9 @@ select:focus {
     .jobs-grid,
     .output-grid,
     .result-grid,
-    .mini-kv {
+    .mini-kv,
+    .summary-grid,
+    .rail-actions {
         grid-template-columns: 1fr;
     }
 }
@@ -1195,18 +1222,5 @@ select:focus {
     .button,
     .video-actions .button {
         width: 100%;
-    }
-}
-
-@media (max-width: 1440px) {
-    .learn-column-left,
-    .learn-column-right {
-        grid-column: span 12;
-    }
-
-    .prove-grid > :nth-child(1),
-    .prove-grid > :nth-child(2),
-    .prove-grid > :nth-child(3) {
-        grid-column: span 12;
     }
 }

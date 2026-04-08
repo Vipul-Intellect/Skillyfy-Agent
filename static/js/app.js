@@ -67,6 +67,13 @@ const fmt = value => value ? String(value).replace(/_/g, " ").replace(/\b\w/g, c
 const learnLevel = () => state.validatedLevel?.validated_level || state.declaredLevel;
 const hasValidatedLevel = () => Boolean(state.validatedLevel?.validated_level || state.validatedLevel?.validatedLevel || state.validatedLevel);
 const toggleEmpty = (node, empty) => node && node.classList.toggle("empty-state", empty);
+const friendlyError = error => {
+    const message = String(error?.message || error || "Unknown error");
+    if (/no response from tool/i.test(message)) {
+        return "The evaluator did not return in time. Try Generate Questions once more.";
+    }
+    return message;
+};
 
 function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -449,6 +456,10 @@ function renderCode() {
 function renderEvaluation() {
     if (els.generateEvaluationBtn) {
         els.generateEvaluationBtn.textContent = state.evaluationPack?.questions?.length ? "Regenerate Questions" : "Generate Questions";
+    }
+    if (els.scoreEvaluationBtn) {
+        els.scoreEvaluationBtn.textContent = "Evaluate Answers";
+        els.scoreEvaluationBtn.disabled = !state.evaluationPack?.questions?.length;
     }
     toggleEmpty(els.evaluationPack, !state.evaluationPack?.questions?.length);
     els.evaluationPack.innerHTML = !state.evaluationPack?.questions?.length ? "No evaluation pack generated yet." : state.evaluationPack.questions.map((q, i) => questionMarkup(q, state.evaluationAnswers[i] || "", i, "evaluation")).join("");
@@ -956,16 +967,26 @@ async function handleEvaluation() {
         }
         try {
             await ensureSession();
-            setStatus(els.evaluationMeta, "Generating readiness evaluation pack...", "loading");
+            const regenerating = Boolean(state.evaluationPack?.questions?.length);
+            state.evaluationPack = null;
+            state.evaluationAnswers = [];
+            state.evaluationResult = null;
+            render();
+            setStatus(els.evaluationMeta, regenerating ? "Regenerating readiness evaluation pack..." : "Generating readiness evaluation pack...", "loading");
             state.evaluationPack = await api("/api/evaluate", { method: "POST", body: { session_id: state.sessionId, skill: state.selectedSkill, level: learnLevel(), question_count: 5 } });
             state.evaluationAnswers = new Array(state.evaluationPack.questions?.length || 0).fill("");
             state.evaluationResult = null;
-            setStatus(els.evaluationMeta, "Evaluation questions generated. Score them when the answers are ready.", "success");
+            setStatus(els.evaluationMeta, "Evaluation questions generated. Use Evaluate Answers when the responses are ready.", "success");
             render();
             els.evaluationPack?.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (error) {
-            setStatus(els.evaluationMeta, error.message, "error");
-            toast("Evaluation generation failed", error.message, "error");
+            state.evaluationPack = null;
+            state.evaluationAnswers = [];
+            state.evaluationResult = null;
+            render();
+            const message = friendlyError(error);
+            setStatus(els.evaluationMeta, `Evaluation generation failed: ${message}`, "error");
+            toast("Evaluation generation failed", message, "error");
         }
     });
 }
@@ -977,18 +998,19 @@ async function handleEvaluationScore() {
             return;
         }
         if (state.evaluationAnswers.some(answer => !String(answer || "").trim())) {
-            setStatus(els.evaluationMeta, "Answer all evaluation questions before scoring.", "warning");
+            setStatus(els.evaluationMeta, "Answer all evaluation questions before evaluation.", "warning");
             return;
         }
         try {
-            setStatus(els.evaluationMeta, "Scoring readiness evaluation...", "loading");
+            setStatus(els.evaluationMeta, "Evaluating readiness answers...", "loading");
             state.evaluationResult = await api("/api/evaluate", { method: "POST", body: { session_id: state.sessionId, skill: state.selectedSkill, level: learnLevel(), questions: state.evaluationPack.questions, answers: state.evaluationAnswers, practice_summary: state.practiceEvaluation || state.practicePack?.practice_summary || null } });
-            setStatus(els.evaluationMeta, "Evaluation scored. Readiness result is now saved and visible.", "success");
+            setStatus(els.evaluationMeta, "Evaluation complete. Readiness result is now saved and visible.", "success");
             render();
             els.evaluationResult?.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (error) {
-            setStatus(els.evaluationMeta, error.message, "error");
-            toast("Evaluation scoring failed", error.message, "error");
+            const message = friendlyError(error);
+            setStatus(els.evaluationMeta, `Evaluation failed: ${message}`, "error");
+            toast("Evaluation scoring failed", message, "error");
         }
     });
 }
