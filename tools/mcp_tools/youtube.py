@@ -1,6 +1,7 @@
 import json
 import re
 import threading
+from urllib.parse import quote_plus
 from collections import OrderedDict
 
 import requests
@@ -205,6 +206,16 @@ def search_videos(
             final_videos.extend(spillover[:shortage])
 
         final_videos = final_videos[:desired_total]
+        fallback_used = False
+        if not final_videos:
+            final_videos = _build_fallback_videos(
+                skill=skill,
+                level=level,
+                topic=target_topic,
+                preferred_duration=preferred_duration,
+                max_results=desired_total,
+            )
+            fallback_used = True
 
         result = {
             "skill": skill,
@@ -213,6 +224,7 @@ def search_videos(
             "preferred_duration": preferred_duration or None,
             "videos": final_videos,
             "total": len(final_videos),
+            "fallback_used": fallback_used,
             "counts": {
                 "curated": len([video for video in final_videos if video["source"] == "curated"]),
                 "live": len([video for video in final_videos if video["source"] == "live"]),
@@ -232,6 +244,56 @@ def search_videos(
     except Exception as e:
         logger.error(f"Error searching videos: {e}")
         return {"error": str(e), "videos": []}
+
+
+def _build_fallback_videos(
+    skill: str,
+    level: str,
+    topic: str,
+    preferred_duration: str,
+    max_results: int,
+) -> list[dict]:
+    base_topic = _normalize_topic(topic) or _normalize_topic(skill)
+    queries = [
+        f"{skill} {base_topic} tutorial {level}",
+        f"{base_topic} hands on tutorial {level}",
+        f"{skill} {base_topic} practice project",
+        f"{base_topic} interview prep {level}",
+    ]
+
+    deduped_queries = []
+    seen = set()
+    for query in queries:
+        normalized = " ".join(query.split()).strip()
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        deduped_queries.append(normalized)
+
+    fallback = []
+    for query in deduped_queries[: max(1, min(max_results, 4))]:
+        fallback.append(
+            {
+                "video_id": "",
+                "title": f"YouTube search: {query}",
+                "url": f"https://www.youtube.com/results?search_query={quote_plus(query)}",
+                "thumbnail": "",
+                "channel": "YouTube Search",
+                "views": 0,
+                "likes": 0,
+                "duration": preferred_duration or "Flexible",
+                "duration_seconds": 0,
+                "published_at": None,
+                "source": "fallback",
+                "trusted_channel": False,
+                "relevance_score": 0,
+                "duration_match_score": 0,
+            }
+        )
+    return fallback
 
 
 def _build_query(skill: str, level: str, topic: str) -> str:

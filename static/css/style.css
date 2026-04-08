@@ -858,6 +858,22 @@ select:focus {
     display: block;
 }
 
+.video-thumb-placeholder {
+    height: 100%;
+    display: grid;
+    place-items: center;
+    gap: 0.45rem;
+    padding: 1rem;
+    text-align: center;
+    background: linear-gradient(135deg, rgba(70, 209, 168, 0.08), rgba(241, 186, 75, 0.08));
+    color: var(--text-soft);
+}
+
+.video-thumb-placeholder .material-symbols-outlined {
+    font-size: 2rem;
+    color: var(--primary);
+}
+
 .video-thumb .source-badge,
 .video-thumb .duration-badge {
     position: absolute;
