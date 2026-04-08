@@ -1,5 +1,6 @@
 import asyncio
 import json
+from json import JSONDecodeError
 import os
 import sys
 import threading
@@ -152,7 +153,14 @@ and manage schedules. Prefer tool-grounded responses and keep outputs structured
             if result.content:
                 for content in result.content:
                     if hasattr(content, "text"):
-                        return json.loads(content.text)
+                        text = (content.text or "").strip()
+                        if not text:
+                            continue
+                        try:
+                            return json.loads(text)
+                        except JSONDecodeError:
+                            logger.warning(f"Skipping non-JSON MCP text chunk from {tool_name}: {text[:200]}")
+                            continue
 
             return {"error": "No response from tool"}
         except Exception as e:
@@ -516,7 +524,8 @@ and manage schedules. Prefer tool-grounded responses and keep outputs structured
 
             if message.message_type == A2AProtocol.GET_VIDEOS:
                 payload = message.payload or {}
-                return self.search_videos(
+                return await asyncio.to_thread(
+                    self.search_videos,
                     payload.get("skill", ""),
                     payload.get("level", "Beginner"),
                     payload.get("max_results", 5),

@@ -1,10 +1,15 @@
 from google.cloud import firestore
 from datetime import datetime, timedelta, timezone
+from config.settings import settings
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 db = None
+
+
+def _firestore_timeout_seconds():
+    return max(3, int(getattr(settings, "FIRESTORE_TIMEOUT", 12) or 12))
 
 def init_firestore():
     global db
@@ -30,7 +35,12 @@ def save_session(session_id, data):
         if 'created_at' not in document_data:
             document_data['created_at'] = firestore.SERVER_TIMESTAMP
         
-        db.collection('sessions').document(session_id).set(document_data, merge=True)
+        db.collection('sessions').document(session_id).set(
+            document_data,
+            merge=True,
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         logger.info(f"Session saved: {session_id}")
         return True
     except Exception as e:
@@ -40,7 +50,10 @@ def save_session(session_id, data):
 def get_session(session_id):
     try:
         db = get_db()
-        doc = db.collection('sessions').document(session_id).get()
+        doc = db.collection('sessions').document(session_id).get(
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         if doc.exists:
             logger.info(f"Session retrieved: {session_id}")
             return doc.to_dict()
@@ -57,7 +70,12 @@ def update_progress(session_id, progress_data):
         document_data = dict(progress_data)
         document_data['updated_at'] = firestore.SERVER_TIMESTAMP
         
-        db.collection('progress').document(session_id).set(document_data, merge=True)
+        db.collection('progress').document(session_id).set(
+            document_data,
+            merge=True,
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         logger.info(f"Progress updated: {session_id}")
         return True
     except Exception as e:
@@ -73,7 +91,11 @@ def update_session(session_id, data):
         db = get_db()
         document_data = dict(data)
         document_data['updated_at'] = firestore.SERVER_TIMESTAMP
-        db.collection('sessions').document(session_id).update(document_data)
+        db.collection('sessions').document(session_id).update(
+            document_data,
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         logger.info(f"Session updated: {session_id}")
         return True
     except Exception as e:
@@ -84,7 +106,10 @@ def get_result(session_id):
     """Get evaluation result for session"""
     try:
         db = get_db()
-        doc = db.collection('results').document(session_id).get()
+        doc = db.collection('results').document(session_id).get(
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         if doc.exists:
             return doc.to_dict()
         return None
@@ -98,7 +123,11 @@ def save_result(session_id, result_data):
         document_data = dict(result_data)
         document_data['timestamp'] = firestore.SERVER_TIMESTAMP
         
-        db.collection('results').document(session_id).set(document_data)
+        db.collection('results').document(session_id).set(
+            document_data,
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         logger.info(f"Result saved: {session_id}")
         return True
     except Exception as e:
@@ -111,7 +140,11 @@ def save_resume_insights(session_id, insights):
         document_data = dict(insights)
         document_data['timestamp'] = firestore.SERVER_TIMESTAMP
         
-        db.collection('resume_insights').document(session_id).set(document_data)
+        db.collection('resume_insights').document(session_id).set(
+            document_data,
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         logger.info(f"Resume insights saved: {session_id}")
         return True
     except Exception as e:
@@ -121,7 +154,10 @@ def save_resume_insights(session_id, insights):
 def get_cache(key):
     try:
         db = get_db()
-        doc = db.collection('cache').document(key).get()
+        doc = db.collection('cache').document(key).get(
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         
         if doc.exists:
             data = doc.to_dict()
@@ -155,7 +191,11 @@ def set_cache(key, value, ttl_hours=24):
             'created_at': firestore.SERVER_TIMESTAMP
         }
         
-        db.collection('cache').document(key).set(cache_data)
+        db.collection('cache').document(key).set(
+            cache_data,
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         logger.info(f"Cache set: {key} (TTL: {ttl_hours}h)")
         return True
     except Exception as e:
@@ -175,7 +215,12 @@ def save_role_profile(role_key, profile_data, ttl_minutes=15):
         if "created_at" not in document_data:
             document_data["created_at"] = firestore.SERVER_TIMESTAMP
 
-        db.collection("role_profiles").document(role_key).set(document_data, merge=True)
+        db.collection("role_profiles").document(role_key).set(
+            document_data,
+            merge=True,
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         logger.info(f"Role profile saved: {role_key}")
         return True
     except Exception as e:
@@ -187,7 +232,10 @@ def get_role_profile(role_key, allow_stale=False):
     """Fetch a role market profile, optionally returning stale data."""
     try:
         db = get_db()
-        doc = db.collection("role_profiles").document(role_key).get()
+        doc = db.collection("role_profiles").document(role_key).get(
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         if not doc.exists:
             logger.info(f"Role profile miss: {role_key}")
             return None
@@ -221,7 +269,12 @@ def save_skill_gap_job(job_id, job_data):
         if "created_at" not in document_data:
             document_data["created_at"] = firestore.SERVER_TIMESTAMP
 
-        db.collection("skill_gap_jobs").document(job_id).set(document_data, merge=True)
+        db.collection("skill_gap_jobs").document(job_id).set(
+            document_data,
+            merge=True,
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         logger.info(f"Skill-gap job saved: {job_id}")
         return True
     except Exception as e:
@@ -233,7 +286,10 @@ def get_skill_gap_job(job_id):
     """Fetch an async skill-gap job record."""
     try:
         db = get_db()
-        doc = db.collection("skill_gap_jobs").document(job_id).get()
+        doc = db.collection("skill_gap_jobs").document(job_id).get(
+            retry=None,
+            timeout=_firestore_timeout_seconds(),
+        )
         if doc.exists:
             logger.info(f"Skill-gap job retrieved: {job_id}")
             return doc.to_dict()

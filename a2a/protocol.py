@@ -24,6 +24,9 @@ class A2AMessage:
 
     def validate(self):
         """Validate required A2A message fields."""
+        self.from_agent = (self.from_agent or "").strip().lower()
+        self.to_agent = (self.to_agent or "").strip().lower()
+        self.message_type = (self.message_type or "").strip().lower()
         if not self.from_agent:
             raise ValueError("from_agent is required")
         if not self.to_agent:

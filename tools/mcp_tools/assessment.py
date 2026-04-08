@@ -8,6 +8,7 @@ import json
 logger = get_logger(__name__)
 
 MODEL_ID = "gemini-2.5-flash"
+HTTP_OPTIONS = types.HttpOptions(timeout=settings.API_TIMEOUT * 1000)
 client = None
 QUESTION_SCHEMA = {
     "type": "object",
@@ -52,7 +53,10 @@ LEVEL_SCHEMA = {
 def _get_client():
     global client
     if client is None:
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        client = genai.Client(
+            api_key=settings.GEMINI_API_KEY,
+            http_options=HTTP_OPTIONS,
+        )
     return client
 
 
@@ -67,6 +71,7 @@ def _generate_json(prompt: str, schema: dict, *, max_output_tokens: int):
             response_mime_type="application/json",
             response_json_schema=schema,
             thinking_config=types.ThinkingConfig(thinking_budget=0),
+            http_options=HTTP_OPTIONS,
         ),
     )
     if getattr(response, "parsed", None) is not None:

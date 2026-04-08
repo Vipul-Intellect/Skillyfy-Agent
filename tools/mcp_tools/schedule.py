@@ -1,4 +1,5 @@
 import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 from google import genai
 from google.genai import types
@@ -11,6 +12,7 @@ logger = get_logger(__name__)
 
 _client = None
 _client_lock = threading.Lock()
+_genai_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="schedule-genai")
 
 
 def _get_client():
@@ -19,6 +21,39 @@ def _get_client():
         if _client is None:
             _client = genai.Client(api_key=settings.GEMINI_API_KEY)
         return _client
+
+
+def _generate_topics_now(skill: str, level: str, total_days: int):
+    schema = {
+        "type": "object",
+        "properties": {
+            "topics": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": total_days,
+                "maxItems": total_days,
+            }
+        },
+        "required": ["topics"],
+    }
+
+    response = _get_client().models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"""Generate a learning roadmap for {skill} for a {level} learner.
+
+Return exactly {total_days} topics in increasing order of difficulty.
+Start with fundamentals and move toward applied practice.
+Keep each topic concise and practical.
+Return only the topics.""",
+        config=types.GenerateContentConfig(
+            temperature=0.2,
+            response_mime_type="application/json",
+            response_schema=schema,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            http_options=types.HttpOptions(timeout=settings.API_TIMEOUT * 1000),
+        ),
+    )
+    return response.parsed or {}
 
 
 def generate_schedule(
@@ -89,7 +124,6 @@ def generate_schedule(
             "progress_percentage": 0,
         }
 
-        save_session(session_id, {"schedule": schedule})
         logger.info(f"Generated {mode_key} schedule for {skill}: {total_days} days")
         return schedule
     except Exception as e:
@@ -100,37 +134,13 @@ def generate_schedule(
 def _generate_topics(skill: str, level: str, total_days: int) -> list:
     """Generate topic list using Gemini structured output."""
     try:
-        schema = {
-            "type": "object",
-            "properties": {
-                "topics": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "minItems": total_days,
-                    "maxItems": total_days,
-                }
-            },
-            "required": ["topics"],
-        }
+        future = _genai_executor.submit(_generate_topics_now, skill, level, total_days)
+        try:
+            parsed = future.result(timeout=max(settings.API_TIMEOUT + 10, 20))
+        except FuturesTimeoutError as timeout_error:
+            future.cancel()
+            raise TimeoutError(f"Gemini topic generation timed out after {settings.API_TIMEOUT}s") from timeout_error
 
-        response = _get_client().models.generate_content(
-            model="gemini-2.5-flash",
-            contents=f"""Generate a learning roadmap for {skill} for a {level} learner.
-
-Return exactly {total_days} topics in increasing order of difficulty.
-Start with fundamentals and move toward applied practice.
-Keep each topic concise and practical.
-Return only the topics.""",
-            config=types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="application/json",
-                response_schema=schema,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
-                http_options=types.HttpOptions(timeout=settings.API_TIMEOUT * 1000),
-            ),
-        )
-
-        parsed = response.parsed or {}
         topics = [str(topic).strip() for topic in parsed.get("topics", []) if str(topic).strip()]
         while len(topics) < total_days:
             topics.append(f"{skill} Advanced Practice")

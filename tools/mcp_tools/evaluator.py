@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
 
 import requests
@@ -10,8 +11,6 @@ from database.firestore_client import (
     get_cache,
     get_result,
     get_session,
-    save_result,
-    save_session,
     set_cache,
 )
 from utils.logger import get_logger
@@ -20,6 +19,7 @@ logger = get_logger(__name__)
 
 MODEL_ID = "gemini-2.5-flash"
 _client = None
+_genai_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="evaluator-genai")
 
 QUESTION_SCHEMA = {
     "type": "object",
@@ -114,7 +114,7 @@ def _get_client():
     return _client
 
 
-def _generate_json(prompt: str, schema: dict, *, max_output_tokens: int) -> dict[str, Any]:
+def _generate_json_now(prompt: str, schema: dict, *, max_output_tokens: int) -> dict[str, Any]:
     response = _get_client().models.generate_content(
         model=MODEL_ID,
         contents=prompt,
@@ -131,6 +131,20 @@ def _generate_json(prompt: str, schema: dict, *, max_output_tokens: int) -> dict
     if getattr(response, "parsed", None) is not None:
         return response.parsed
     return json.loads(response.text)
+
+
+def _generate_json(prompt: str, schema: dict, *, max_output_tokens: int) -> dict[str, Any]:
+    future = _genai_executor.submit(
+        _generate_json_now,
+        prompt,
+        schema,
+        max_output_tokens=max_output_tokens,
+    )
+    try:
+        return future.result(timeout=max(settings.API_TIMEOUT + 10, 20))
+    except FuturesTimeoutError as e:
+        future.cancel()
+        raise TimeoutError(f"Gemini request timed out after {settings.API_TIMEOUT}s") from e
 
 
 def _safe_ratio(numerator: int, denominator: int) -> float:
@@ -307,6 +321,172 @@ def _build_final_report(
     }
 
 
+def _fallback_questions(skill: str, level: str, question_count: int) -> list[dict]:
+    normalized_skill = (skill or "the skill").strip()
+    return [
+        {
+            "id": 1,
+            "type": "multiple_choice",
+            "question": f"What is the main purpose of using {normalized_skill} in a real project?",
+            "options": [
+                "To structure and solve practical problems",
+                "Only to memorize syntax",
+                "To avoid debugging completely",
+                "To replace system design",
+            ],
+            "correct_answer": "To structure and solve practical problems",
+            "expected_keywords": [],
+            "difficulty": "easy",
+            "focus_area": "fundamentals",
+        },
+        {
+            "id": 2,
+            "type": "multiple_choice",
+            "question": f"When you get stuck in {normalized_skill}, what is the best next move?",
+            "options": [
+                "Break the task into smaller steps",
+                "Rewrite everything immediately",
+                "Ignore the error message",
+                "Skip testing",
+            ],
+            "correct_answer": "Break the task into smaller steps",
+            "expected_keywords": [],
+            "difficulty": "easy",
+            "focus_area": "problem_solving",
+        },
+        {
+            "id": 3,
+            "type": "multiple_choice",
+            "question": f"What usually improves maintainability in {normalized_skill} work?",
+            "options": [
+                "Reusable, readable logic",
+                "Longer files with repeated code",
+                "Avoiding comments and naming",
+                "Changing many things at once",
+            ],
+            "correct_answer": "Reusable, readable logic",
+            "expected_keywords": [],
+            "difficulty": "medium",
+            "focus_area": "code_quality",
+        },
+        {
+            "id": 4,
+            "type": "short_answer",
+            "question": f"Explain one situation where {normalized_skill} would help you solve a real task.",
+            "options": [],
+            "correct_answer": "",
+            "expected_keywords": ["problem", "solution", "task"],
+            "difficulty": "medium",
+            "focus_area": "applied_understanding",
+        },
+        {
+            "id": 5,
+            "type": "short_answer",
+            "question": f"What would you check first if your {normalized_skill} solution is not working as expected?",
+            "options": [],
+            "correct_answer": "",
+            "expected_keywords": ["input", "logic", "error", "test", "debug"],
+            "difficulty": "hard" if (level or "").lower() == "advanced" else "medium",
+            "focus_area": "debugging",
+        },
+    ][:question_count]
+
+
+def _fallback_evaluation_result(
+    resolved_questions: list,
+    answers: list,
+    skill: str,
+    level: str,
+    practice_context: dict,
+    hint_summary: dict,
+) -> dict:
+    item_scores = []
+    strengths = []
+    weak_topics = []
+
+    for question, answer in zip(resolved_questions, answers):
+        answer_text = str(answer or "").strip().lower()
+        focus_area = question.get("focus_area", "general")
+        q_type = question.get("type", "")
+
+        if q_type == "multiple_choice":
+            expected = str(question.get("correct_answer", "")).strip().lower()
+            correct = answer_text == expected
+            score = 20 if correct else 5
+            if correct:
+                strengths.append(focus_area)
+            else:
+                weak_topics.append(focus_area)
+        else:
+            keywords = [str(keyword).strip().lower() for keyword in question.get("expected_keywords", [])]
+            matches = sum(1 for keyword in keywords if keyword and keyword in answer_text)
+            if matches >= 2:
+                score = 18
+                strengths.append(focus_area)
+            elif matches == 1:
+                score = 12
+                weak_topics.append(focus_area)
+            else:
+                score = 6
+                weak_topics.append(focus_area)
+
+        item_scores.append(score)
+
+    if len(item_scores) < len(resolved_questions):
+        missing = len(resolved_questions) - len(item_scores)
+        item_scores.extend([0] * missing)
+        weak_topics.extend(
+            question.get("focus_area", "general")
+            for question in resolved_questions[len(answers):]
+        )
+
+    total_score = max(0, min(100, sum(item_scores)))
+    if total_score >= 90:
+        badge = "Expert"
+        readiness = "Job Ready"
+        confidence = 0.88
+    elif total_score >= 75:
+        badge = "Advanced"
+        readiness = "Interview Ready"
+        confidence = 0.78
+    elif total_score >= 60:
+        badge = "Intermediate"
+        readiness = "Project Ready"
+        confidence = 0.68
+    elif total_score >= 40:
+        badge = "Beginner"
+        readiness = "Practice More"
+        confidence = 0.56
+    else:
+        badge = "Needs Practice"
+        readiness = "Revise Fundamentals"
+        confidence = 0.42
+
+    if hint_summary.get("hint_dependency") == "High":
+        confidence = max(0.3, confidence - 0.12)
+    if float(practice_context.get("acceptance_ratio", 0.0) or 0.0) >= 0.75:
+        confidence = min(0.95, confidence + 0.05)
+
+    strengths = list(dict.fromkeys(strengths or [f"{skill} fundamentals"]))
+    weak_topics = list(dict.fromkeys(weak_topics))
+
+    return {
+        "item_scores": item_scores[:5],
+        "total_score": total_score,
+        "badge": badge,
+        "readiness": readiness,
+        "confidence": round(confidence, 2),
+        "strengths": strengths[:4],
+        "weak_topics": weak_topics[:5],
+        "feedback": f"Fallback evaluation used because Gemini timed out. The learner currently shows {badge.lower()} performance in {skill}.",
+        "next_steps": [
+            f"Review the weakest {skill} topic from this evaluation.",
+            "Complete one more independent practice cycle without hints.",
+            f"Retake the {level} evaluation after revision.",
+        ],
+    }
+
+
 def generate_evaluation(session_id: str, skill: str, level: str, question_count: int = 5) -> dict:
     try:
         if not session_id:
@@ -325,28 +505,25 @@ For MCQ include the correct answer.
 For short answers include 2-4 expected keywords.
 """
 
-        result = _generate_json(prompt, QUESTION_SCHEMA, max_output_tokens=1400)
+        try:
+            result = _generate_json(prompt, QUESTION_SCHEMA, max_output_tokens=1400)
+            instructions = result.get(
+                "instructions",
+                "Answer honestly. Short-answer responses can be brief but should be specific.",
+            )
+        except TimeoutError:
+            logger.warning(f"Gemini timed out generating evaluation for {session_id}; using fallback questions")
+            result = {"questions": _fallback_questions(skill, level, question_count)}
+            instructions = "Fallback evaluation pack generated because the model timed out. Answers can still be evaluated normally."
+
         payload = {
             "session_id": session_id,
             "skill": skill,
             "level": level,
             "question_count": question_count,
             "questions": result.get("questions", []),
-            "instructions": result.get(
-                "instructions",
-                "Answer honestly. Short-answer responses can be brief but should be specific.",
-            ),
+            "instructions": instructions,
         }
-        persisted = save_session(
-            session_id,
-            {
-                "evaluation_skill": skill,
-                "evaluation_level": level,
-                "evaluation_questions": payload["questions"],
-            },
-        )
-        if not persisted:
-            return {"error": "Failed to persist evaluation questions"}
         return payload
     except Exception as e:
         logger.error(f"Error generating evaluation for {session_id}: {e}")
@@ -360,12 +537,15 @@ def evaluate_answers(
     answers: list,
     questions: list | None = None,
     practice_summary: dict | None = None,
+    evaluation_context: dict | None = None,
 ) -> dict:
     try:
         if not session_id:
             return {"error": "Session ID is required"}
 
-        session_data = get_session(session_id) or {}
+        session_data = dict(evaluation_context or {})
+        if not session_data:
+            session_data = get_session(session_id) or {}
         resolved_questions = questions or []
         if not resolved_questions:
             if not session_data:
@@ -431,7 +611,18 @@ Readiness guidance:
 - top score: Job Ready
 """
 
-        result = _generate_json(prompt, CORE_EVALUATION_SCHEMA, max_output_tokens=1400)
+        try:
+            result = _generate_json(prompt, CORE_EVALUATION_SCHEMA, max_output_tokens=1400)
+        except TimeoutError:
+            logger.warning(f"Gemini timed out evaluating answers for {session_id}; using deterministic scoring")
+            result = _fallback_evaluation_result(
+                resolved_questions=resolved_questions,
+                answers=answers,
+                skill=skill,
+                level=level,
+                practice_context=practice_context,
+                hint_summary=hint_summary,
+            )
         total_score = int(result.get("total_score", 0) or 0)
         demonstrated_level = _score_to_demonstrated_level(total_score)
 
@@ -483,33 +674,25 @@ Readiness guidance:
             },
         }
 
-        persisted = save_result(session_id, final_payload)
-        if not persisted:
-            return {"error": "Failed to persist evaluation result"}
-
-        save_session(
-            session_id,
-            {
-                "last_evaluation_score": final_payload.get("total_score"),
-                "last_evaluation_badge": final_payload.get("badge"),
-                "last_evaluation_readiness": final_payload.get("readiness"),
-                "last_evaluation_weak_topics": final_payload.get("weak_topics", []),
-                "last_evaluation_achievements": final_payload.get("achievements", []),
-            },
-        )
         return final_payload
     except Exception as e:
         logger.error(f"Error evaluating answers for {session_id}: {e}")
         return {"error": str(e)}
 
 
-def fetch_jobs(skill: str, level: str = "", limit: int = 10, session_id: str = "") -> dict:
+def fetch_jobs(
+    skill: str,
+    level: str = "",
+    limit: int = 10,
+    session_id: str = "",
+    readiness_override: str = "",
+) -> dict:
     if not skill:
         return {"error": "Skill is required", "jobs": [], "count": 0}
 
     resolved_level = (level or "").strip()
-    readiness = ""
-    if session_id and not resolved_level:
+    readiness = (readiness_override or "").strip()
+    if session_id and not resolved_level and not readiness:
         prior_result = get_result(session_id) or {}
         readiness = prior_result.get("readiness", "")
         if readiness == "Job Ready":

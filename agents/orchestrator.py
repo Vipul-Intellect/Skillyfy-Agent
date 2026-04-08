@@ -2,6 +2,7 @@ import asyncio
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import json
+from json import JSONDecodeError
 import os
 import sys
 import threading
@@ -171,7 +172,14 @@ over unsupported free-form responses.""",
             if result.content:
                 for content in result.content:
                     if hasattr(content, 'text'):
-                        return json.loads(content.text)
+                        text = (content.text or "").strip()
+                        if not text:
+                            continue
+                        try:
+                            return json.loads(text)
+                        except JSONDecodeError:
+                            logger.warning(f"Skipping non-JSON MCP text chunk from {tool_name}: {text[:200]}")
+                            continue
             
             return {"error": "No response from tool"}
                     
@@ -619,9 +627,9 @@ over unsupported free-form responses.""",
             if message.message_type == A2AProtocol.EVALUATION_COMPLETE:
                 if message.payload.get("persist", True):
                     try:
-                        from database.firestore_client import update_session
+                        from database.firestore_client import save_session
 
-                        update_session(
+                        save_session(
                             message.session_id,
                             {
                                 "last_a2a_event": message.message_type,

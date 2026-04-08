@@ -17,6 +17,7 @@ VIDEO_CACHE_PREFIX = "learning_videos"
 VIDEO_TARGET_TOTAL = 12
 CURATED_TARGET = 6
 LIVE_TARGET = 6
+YOUTUBE_REQUEST_TIMEOUT = max(3, min(int(settings.API_TIMEOUT or 30), 5))
 
 _http = requests.Session()
 _topic_cache_lock = threading.Lock()
@@ -182,7 +183,14 @@ def search_videos(
         search_duration = _youtube_duration_filter(preferred_duration)
 
         curated_raw = _search_curated_channels(query, search_duration)
-        live_raw = _search_global(query, search_duration, limit=max(LIVE_TARGET, desired_total))
+        live_raw = _search_global(
+            skill=skill,
+            level=level,
+            topic=target_topic,
+            duration_filter=search_duration,
+            limit=max(LIVE_TARGET, desired_total),
+            exclude_video_ids={item["video_id"] for item in curated_raw},
+        )
 
         curated_videos = _hydrate_video_records(curated_raw, source="curated", preferred_duration=preferred_duration)
         live_videos = _hydrate_video_records(live_raw, source="live", preferred_duration=preferred_duration)
@@ -208,6 +216,10 @@ def search_videos(
             "counts": {
                 "curated": len([video for video in final_videos if video["source"] == "curated"]),
                 "live": len([video for video in final_videos if video["source"] == "live"]),
+            },
+            "target_mix": {
+                "curated": min(CURATED_TARGET, desired_total),
+                "live": min(LIVE_TARGET, max(0, desired_total - min(CURATED_TARGET, desired_total))),
             },
         }
 
@@ -241,14 +253,76 @@ def _youtube_duration_filter(preferred_duration: str) -> str | None:
 def _search_curated_channels(query: str, duration_filter: str | None) -> list[dict]:
     videos = []
     for channel_id in settings.MASTER_CHANNELS:
-        videos.extend(_search_api(query, max_results=2, channel_id=channel_id, duration_filter=duration_filter, order="relevance"))
+        videos.extend(
+            _search_api_safe(
+                query,
+                max_results=2,
+                channel_id=channel_id,
+                duration_filter=duration_filter,
+                order="relevance",
+            )
+        )
         if len(videos) >= CURATED_TARGET * 2:
             break
     return videos
 
 
-def _search_global(query: str, duration_filter: str | None, limit: int) -> list[dict]:
-    return _search_api(query, max_results=limit, channel_id=None, duration_filter=duration_filter, order="relevance")
+def _search_global(
+    skill: str,
+    level: str,
+    topic: str,
+    duration_filter: str | None,
+    limit: int,
+    exclude_video_ids: set[str] | None = None,
+) -> list[dict]:
+    exclude_video_ids = exclude_video_ids or set()
+    queries = _build_live_queries(skill, level, topic)
+    results = []
+    seen_ids = set(exclude_video_ids)
+
+    for query in queries:
+        batch = _search_api_safe(
+            query,
+            max_results=max(limit, LIVE_TARGET),
+            channel_id=None,
+            duration_filter=duration_filter,
+            order="relevance",
+        )
+        for item in batch:
+            video_id = item["video_id"]
+            channel_id = item.get("channel_id")
+            if video_id in seen_ids:
+                continue
+            if channel_id in settings.MASTER_CHANNELS:
+                continue
+            seen_ids.add(video_id)
+            results.append(item)
+            if len(results) >= limit:
+                return results
+
+    return results
+
+
+def _build_live_queries(skill: str, level: str, topic: str) -> list[str]:
+    base_topic = _normalize_topic(topic) or _normalize_topic(skill)
+    queries = [
+        _build_query(skill, level, base_topic),
+        f"{skill} {base_topic} explained {level}".strip(),
+        f"{skill} {base_topic} practice {level}".strip(),
+    ]
+
+    deduped = []
+    seen = set()
+    for query in queries:
+        normalized = " ".join(query.split()).strip()
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        deduped.append(normalized)
+    return deduped
 
 
 def _search_api(
@@ -272,7 +346,11 @@ def _search_api(
     if duration_filter:
         params["videoDuration"] = duration_filter
 
-    response = _http.get("https://www.googleapis.com/youtube/v3/search", params=params, timeout=settings.API_TIMEOUT)
+    response = _http.get(
+        "https://www.googleapis.com/youtube/v3/search",
+        params=params,
+        timeout=YOUTUBE_REQUEST_TIMEOUT,
+    )
     response.raise_for_status()
     data = response.json()
 
@@ -287,12 +365,28 @@ def _search_api(
                 "video_id": video_id,
                 "title": snippet.get("title", ""),
                 "channel": snippet.get("channelTitle", ""),
+                "channel_id": snippet.get("channelId", ""),
                 "search_query": query,
                 "published_at": snippet.get("publishedAt"),
                 "thumbnail": (snippet.get("thumbnails", {}).get("medium") or {}).get("url"),
             }
         )
     return results
+
+
+def _search_api_safe(
+    query: str,
+    max_results: int,
+    channel_id: str | None,
+    duration_filter: str | None,
+    order: str,
+) -> list[dict]:
+    try:
+        return _search_api(query, max_results, channel_id, duration_filter, order)
+    except Exception as e:
+        scope = channel_id or "global"
+        logger.warning(f"YouTube search skipped for {scope}: {e}")
+        return []
 
 
 def _hydrate_video_records(search_results: list[dict], source: str, preferred_duration: str) -> list[dict]:
@@ -346,17 +440,21 @@ def _fetch_video_details(video_ids: list[str]) -> dict:
     if not video_ids:
         return {}
 
-    response = _http.get(
-        "https://www.googleapis.com/youtube/v3/videos",
-        params={
-            "key": settings.YOUTUBE_API_KEY,
-            "id": ",".join(video_ids),
-            "part": "contentDetails,statistics",
-        },
-        timeout=settings.API_TIMEOUT,
-    )
-    response.raise_for_status()
-    data = response.json()
+    try:
+        response = _http.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={
+                "key": settings.YOUTUBE_API_KEY,
+                "id": ",".join(video_ids),
+                "part": "contentDetails,statistics",
+            },
+            timeout=YOUTUBE_REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        logger.warning(f"YouTube detail lookup skipped: {e}")
+        data = {"items": []}
 
     details = {}
     for item in data.get("items", []):

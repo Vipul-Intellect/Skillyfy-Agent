@@ -51,6 +51,7 @@ async def list_tools():
                     "answers": {"type": "array", "items": {"type": "string"}},
                     "questions": {"type": "array", "items": {"type": "object"}},
                     "practice_summary": {"type": "object"},
+                    "evaluation_context": {"type": "object"},
                 },
                 "required": ["session_id", "answers"],
             },
@@ -65,6 +66,7 @@ async def list_tools():
                     "skill": {"type": "string"},
                     "level": {"type": "string"},
                     "limit": {"type": "integer"},
+                    "readiness_override": {"type": "string"},
                 },
                 "required": ["skill"],
             },
@@ -101,6 +103,7 @@ async def call_tool(name: str, arguments: dict):
                 answers=arguments.get("answers", []),
                 questions=arguments.get("questions"),
                 practice_summary=arguments.get("practice_summary"),
+                evaluation_context=arguments.get("evaluation_context"),
             )
         elif name == "fetch_jobs":
             result = evaluator.fetch_jobs(
@@ -108,6 +111,7 @@ async def call_tool(name: str, arguments: dict):
                 level=arguments.get("level", ""),
                 limit=arguments.get("limit", 10),
                 session_id=arguments.get("session_id", ""),
+                readiness_override=arguments.get("readiness_override", ""),
             )
         elif name == "get_evaluation_result":
             result = evaluator.get_evaluation_result(

@@ -3,6 +3,7 @@ Evaluator Agent - Handles learning evaluation, readiness scoring, and job discov
 """
 import asyncio
 import json
+from json import JSONDecodeError
 import os
 import sys
 import threading
@@ -17,7 +18,7 @@ from mcp.client.stdio import stdio_client
 
 from a2a.protocol import A2AMessage, A2AProtocol, a2a_protocol
 from config.settings import settings
-from database.firestore_client import get_result
+from database.firestore_client import get_result, get_session, save_result, save_session
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -139,7 +140,14 @@ keep outputs structured and practical.""",
             if result.content:
                 for content in result.content:
                     if hasattr(content, "text"):
-                        return json.loads(content.text)
+                        text = (content.text or "").strip()
+                        if not text:
+                            continue
+                        try:
+                            return json.loads(text)
+                        except JSONDecodeError:
+                            logger.warning(f"Skipping non-JSON MCP text chunk from {tool_name}: {text[:200]}")
+                            continue
 
             return {"error": "No response from tool"}
         except Exception as e:
@@ -160,7 +168,7 @@ keep outputs structured and practical.""",
         level: str,
         question_count: int = 5,
     ) -> dict:
-        return self._run_on_loop(
+        result = self._run_on_loop(
             self._call_mcp_tool(
                 "generate_evaluation",
                 {
@@ -171,6 +179,10 @@ keep outputs structured and practical.""",
                 },
             )
         )
+        if not result.get("error"):
+            if not self._persist_generated_evaluation(session_id, skill, level, result):
+                return {"error": "Failed to persist evaluation questions"}
+        return result
 
     def evaluate_answers(
         self,
@@ -181,31 +193,87 @@ keep outputs structured and practical.""",
         questions: list | None = None,
         practice_summary: dict | None = None,
     ) -> dict:
-        return self._run_on_loop(
+        session_data = get_session(session_id) or {}
+        resolved_questions = questions or session_data.get("evaluation_questions", [])
+        resolved_skill = skill or session_data.get("evaluation_skill", skill)
+        resolved_level = level or session_data.get("evaluation_level", level) or "Beginner"
+        evaluation_context = {
+            "validated_level": session_data.get("validated_level", resolved_level),
+            "level_confidence": session_data.get("level_confidence", 0.5),
+            "last_practice_evaluation": session_data.get("last_practice_evaluation", {}),
+            "hint_usage": session_data.get("hint_usage", {}),
+            "evaluation_questions": resolved_questions,
+            "evaluation_skill": resolved_skill,
+            "evaluation_level": resolved_level,
+        }
+        arguments = {
+            "session_id": session_id,
+            "skill": resolved_skill,
+            "level": resolved_level,
+            "answers": answers,
+            "evaluation_context": evaluation_context,
+        }
+        if resolved_questions:
+            arguments["questions"] = resolved_questions
+        if practice_summary:
+            arguments["practice_summary"] = practice_summary
+
+        result = self._run_on_loop(
             self._call_mcp_tool(
                 "evaluate_answers",
-                {
-                    "session_id": session_id,
-                    "skill": skill,
-                    "level": level,
-                    "answers": answers,
-                    "questions": questions,
-                    "practice_summary": practice_summary or {},
-                },
+                arguments,
             )
         )
+        if not result.get("error"):
+            if not self._persist_scored_evaluation(session_id, result):
+                return {"error": "Failed to persist evaluation result"}
+        return result
+
+    def _persist_generated_evaluation(self, session_id: str, skill: str, level: str, result: dict) -> bool:
+        return save_session(
+            session_id,
+            {
+                "evaluation_skill": skill,
+                "evaluation_level": level,
+                "evaluation_questions": result.get("questions", []),
+            },
+        )
+
+    def _persist_scored_evaluation(self, session_id: str, result: dict) -> bool:
+        if not save_result(session_id, result):
+            return False
+        save_session(
+            session_id,
+            {
+                "last_evaluation_score": result.get("total_score"),
+                "last_evaluation_badge": result.get("badge"),
+                "last_evaluation_readiness": result.get("readiness"),
+                "last_evaluation_weak_topics": result.get("weak_topics", []),
+                "last_evaluation_achievements": result.get("achievements", []),
+            },
+        )
+        return True
 
     def fetch_jobs(self, skill: str, level: str = "", limit: int = 10, session_id: str = "") -> dict:
-        return self._run_on_loop(
-            self._call_mcp_tool(
-                "fetch_jobs",
-                {
-                    "session_id": session_id,
-                    "skill": skill,
-                    "level": level,
-                    "limit": limit,
-                },
-            )
+        readiness_override = ""
+        resolved_level = level
+        if session_id and not resolved_level:
+            prior_result = get_result(session_id) or {}
+            readiness_override = prior_result.get("readiness", "")
+            if readiness_override == "Job Ready":
+                resolved_level = "Advanced"
+            elif readiness_override == "Interview Ready":
+                resolved_level = "Intermediate"
+            elif readiness_override == "Project Ready":
+                resolved_level = "Beginner"
+        from tools.mcp_tools.evaluator import fetch_jobs as fetch_jobs_tool
+
+        return fetch_jobs_tool(
+            skill=skill,
+            level=resolved_level,
+            limit=limit,
+            session_id=session_id,
+            readiness_override=readiness_override,
         )
 
     def get_result(self, session_id: str) -> dict:
@@ -240,27 +308,32 @@ keep outputs structured and practical.""",
 
             if message.message_type in {A2AProtocol.REQUEST_EVALUATION, A2AProtocol.START_EVALUATION}:
                 if payload.get("answers"):
-                    return self.evaluate_answers(
-                        session_id=message.session_id,
-                        skill=payload.get("skill", ""),
-                        level=payload.get("level", ""),
-                        answers=payload.get("answers", []),
-                        questions=payload.get("questions"),
-                        practice_summary=payload.get("practice_summary"),
+                    return await asyncio.to_thread(
+                        self.evaluate_answers,
+                        message.session_id,
+                        payload.get("skill", ""),
+                        payload.get("level", ""),
+                        payload.get("answers", []),
+                        payload.get("questions"),
+                        payload.get("practice_summary"),
                     )
-                return self.generate_evaluation(
-                    session_id=message.session_id,
-                    skill=payload.get("skill", ""),
-                    level=payload.get("level", "Beginner"),
-                    question_count=payload.get("question_count", 5),
+                return await asyncio.to_thread(
+                    self.generate_evaluation,
+                    message.session_id,
+                    payload.get("skill", ""),
+                    payload.get("level", "Beginner"),
+                    payload.get("question_count", 5),
                 )
 
             if message.message_type == A2AProtocol.FETCH_JOBS:
-                return self.fetch_jobs(
-                    session_id=message.session_id,
-                    skill=payload.get("skill", ""),
-                    level=payload.get("level", ""),
-                    limit=payload.get("limit", 10),
+                from tools.mcp_tools.evaluator import fetch_jobs as fetch_jobs_tool
+
+                return await asyncio.to_thread(
+                    self.fetch_jobs,
+                    payload.get("skill", ""),
+                    payload.get("level", ""),
+                    payload.get("limit", 10),
+                    message.session_id,
                 )
 
             return {"error": f"Unsupported evaluator message type: {message.message_type}"}

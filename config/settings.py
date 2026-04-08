@@ -46,6 +46,7 @@ class Settings:
     
     # Timeouts (seconds)
     API_TIMEOUT = int(os.getenv('API_TIMEOUT', '30'))
+    FIRESTORE_TIMEOUT = int(os.getenv('FIRESTORE_TIMEOUT', '12'))
     
     # Master YouTube Channels
     MASTER_CHANNELS = [
