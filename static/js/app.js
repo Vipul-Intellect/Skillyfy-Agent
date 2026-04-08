@@ -455,7 +455,9 @@ function renderCode() {
 
 function renderEvaluation() {
     if (els.generateEvaluationBtn) {
-        els.generateEvaluationBtn.textContent = state.evaluationPack?.questions?.length ? "Regenerate Questions" : "Generate Questions";
+        const hasQuestions = Boolean(state.evaluationPack?.questions?.length);
+        els.generateEvaluationBtn.textContent = hasQuestions ? "Questions Ready" : "Generate Questions";
+        els.generateEvaluationBtn.disabled = hasQuestions;
     }
     if (els.scoreEvaluationBtn) {
         els.scoreEvaluationBtn.textContent = "Evaluate Answers";
@@ -965,14 +967,18 @@ async function handleEvaluation() {
             setStatus(els.evaluationMeta, "Select and validate a skill before Agent 3 evaluation.", "warning");
             return;
         }
+        if (state.evaluationPack?.questions?.length) {
+            setStatus(els.evaluationMeta, "Evaluation questions are already ready below. Answer them and use Evaluate Answers.", "success");
+            els.evaluationPack?.scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+        }
         try {
             await ensureSession();
-            const regenerating = Boolean(state.evaluationPack?.questions?.length);
             state.evaluationPack = null;
             state.evaluationAnswers = [];
             state.evaluationResult = null;
             render();
-            setStatus(els.evaluationMeta, regenerating ? "Regenerating readiness evaluation pack..." : "Generating readiness evaluation pack...", "loading");
+            setStatus(els.evaluationMeta, "Generating readiness evaluation pack...", "loading");
             state.evaluationPack = await api("/api/evaluate", { method: "POST", body: { session_id: state.sessionId, skill: state.selectedSkill, level: learnLevel(), question_count: 5 } });
             state.evaluationAnswers = new Array(state.evaluationPack.questions?.length || 0).fill("");
             state.evaluationResult = null;
