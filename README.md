@@ -1,105 +1,243 @@
 # SkillUp Agent
 
-Multi-Agent AI System for Google GenAI APAC 2026 Hackathon (Track 2)
+> Google GenAI APAC Academy Grand Hackathon | Track 2: Multi-Agent Systems
 
-## Project Overview
+SkillUp Agent is an AI-powered skill development platform that takes a learner from profile discovery to guided learning and final readiness evaluation. It is built around three coordinated Google ADK agents, MCP tool servers, Firestore-backed state, and a separate code execution service on Google Cloud Run.
 
-SkillUp Agent is a production-ready AI system that helps users:
-- Discover trending tech skills
-- Analyze resume and identify skill gaps
-- Get personalized learning recommendations
-- Learn through curated videos and coding practice
-- Get evaluated and matched with real job opportunities
+## Live demo
+
+- App: [https://skillyfy-main-136795379012.asia-south1.run.app](https://skillyfy-main-136795379012.asia-south1.run.app)
+- Repository: [https://github.com/Vipul-Intellect/Skillyfy-Agent](https://github.com/Vipul-Intellect/Skillyfy-Agent)
+
+## What the product does
+
+SkillUp Agent connects the full learning journey in one workflow:
+
+```text
+Resume or direct input
+  -> trending skills and market-aware gap analysis
+  -> level validation
+  -> personalized topics, videos, practice, and code labs
+  -> final evaluation and readiness result
+  -> relevant job recommendations
+```
+
+The product is designed to solve a practical problem: most platforms handle only one part of the journey. Resume tools show current profile, learning platforms suggest content, coding sites provide isolated practice, and job portals list openings. SkillUp Agent connects those steps into one guided system.
+
+## Core capabilities
+
+- Resume upload and direct skill input
+- Trending skill discovery and market-aware skill-gap analysis
+- Level assessment and validation
+- Personalized topic recommendations
+- Curated and live YouTube learning resources
+- Practice questions and mini-labs
+- In-browser code editing, validation, and execution
+- Socratic hinting instead of full-answer dumping
+- Learning schedule generation and progress tracking
+- Final readiness evaluation and saved result retrieval
+- Live job recommendations
 
 ## Architecture
 
-### Agents
-1. **Orchestrator Agent**: Entry point, resume analysis, recommendations, level assessment
-2. **Learning Agent**: Video curation, coding practice, Socratic AI assistant
-3. **Evaluator Agent**: Final assessment, scoring, job matching
+### High-level design
 
-### Tech Stack
-- Google ADK
-- Gemini 2.5 Flash
-- Flask
-- Google Cloud Firestore
-- YouTube Data API v3
-- Judge0 (code execution)
-- RapidAPI JSearch (job search)
+```text
+Browser UI
+  -> Flask API (Cloud Run)
+    -> Agent 1: Orchestrator
+    -> Agent 2: Learning
+    -> Agent 3: Evaluator
+      -> MCP tool servers (stdio)
+      -> Firestore
+      -> Internal code execution service (Cloud Run)
+```
 
-## Setup Instructions
+### Agent roles
+
+#### Agent 1 - Orchestrator
+File: `agents/orchestrator.py`
+
+- Accepts resume or direct input
+- Fetches trending skills
+- Compares learner profile with target-role demand
+- Starts and tracks skill-gap analysis jobs
+- Generates and validates level-assessment questions
+
+#### Agent 2 - Learning
+File: `agents/learning_agent.py`
+
+- Recommends topics based on skill and level
+- Fetches curated and live learning videos
+- Generates practice packs and mini-labs
+- Supports code validation and execution
+- Delivers Socratic hints
+- Generates schedules and tracks progress
+
+#### Agent 3 - Evaluator
+File: `agents/evaluator_agent.py`
+
+- Generates final evaluation packs
+- Scores learner answers
+- Stores readiness results
+- Fetches relevant job recommendations
+- Restores saved evaluation results
+
+### Coordination model
+
+- Google ADK powers the three agents
+- MCP tool servers provide structured tool access over stdio
+- A2A protocol files in `a2a/` support agent-to-agent coordination
+- Firestore preserves workflow state across the full learner journey
+
+## Tech stack
+
+| Technology | Purpose |
+| --- | --- |
+| Google ADK | Agent runtime and orchestration |
+| Gemini 2.5 Flash | Reasoning, generation, scoring, and parsing |
+| MCP | Structured tool integration |
+| A2A protocol | Agent registration and message routing |
+| Flask | Main API and server-rendered web app |
+| Firestore | Sessions, progress, results, cache, and async job state |
+| Cloud Run | Main app deployment and executor deployment |
+| YouTube Data API | Learning video retrieval |
+| RapidAPI JSearch | Job recommendation source |
+| Piston-based executor | Sandboxed multi-language code execution |
+| Monaco Editor | In-browser coding experience |
+
+## Project structure
+
+```text
+multi-agent/
+|-- agents/
+|   |-- orchestrator.py
+|   |-- learning_agent.py
+|   `-- evaluator_agent.py
+|-- api/
+|   `-- flask_app.py
+|-- a2a/
+|   |-- protocol.py
+|   `-- registry.py
+|-- database/
+|   `-- firestore_client.py
+|-- executor_service/
+|-- tools/
+|   `-- mcp_tools/
+|       |-- server.py
+|       |-- learning_server.py
+|       |-- evaluator_server.py
+|       |-- trending.py
+|       |-- resume.py
+|       |-- assessment.py
+|       |-- youtube.py
+|       |-- socratic.py
+|       |-- schedule.py
+|       |-- evaluator.py
+|       `-- code_executor.py
+|-- templates/
+|   `-- index.html
+|-- static/
+|-- config/
+|   `-- settings.py
+`-- README.md
+```
+
+## API surface
+
+### Session and health
+
+- `GET /health`
+- `POST /api/session/start`
+
+### Agent 1 endpoints
+
+- `GET|POST /api/trending-skills`
+- `POST /api/analyze-resume`
+- `POST /api/skill-gaps`
+- `POST /api/skill-gaps/start`
+- `GET /api/skill-gaps/<job_id>`
+- `POST /api/assess-level`
+- `POST /api/validate-level`
+
+### Agent 2 endpoints
+
+- `POST /api/topics`
+- `POST /api/videos`
+- `POST /api/practice`
+- `POST /api/practice/evaluate`
+- `POST /api/hint`
+- `GET /api/execution-config`
+- `POST /api/validate-code`
+- `POST /api/execute-code`
+- `POST /api/schedule`
+- `GET /api/schedule/<session_id>`
+- `POST /api/schedule/progress`
+
+### Agent 3 endpoints
+
+- `POST /api/evaluate`
+- `POST /api/jobs`
+- `GET /api/results/<session_id>`
+
+## Firestore collections
+
+The app persists workflow state in Firestore through `database/firestore_client.py`.
+
+- `sessions` - learner session state and selections
+- `progress` - learning progress and hint/practice metadata
+- `results` - final evaluation outputs
+- `resume_insights` - extracted and derived learner insights
+- `role_profiles` - cached target-role profiles
+- `cache` - general cached responses
+- `skill_gap_jobs` - async skill-gap job tracking
+
+## Local setup
 
 ### Prerequisites
-- Python 3.9 or higher
-- Google Cloud account
-- API keys (Gemini, YouTube, RapidAPI)
 
-### Installation
+- Python 3.9+
+- Google Cloud project with Firestore enabled
+- API keys for Gemini, YouTube Data API, and RapidAPI
+- Application Default Credentials for Google Cloud
 
-1. Clone the repository
-2. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
+### Install
 
-3. Set up Google Cloud:
-   - Install Google Cloud CLI
-   - Run: gcloud auth application-default login
-   - Project: multi-agent-492316
-
-4. Configure environment variables:
-   - Copy .env.example to .env
-   - Fill in your API keys
-
-5. Run the application:
-   ```
-   python api/flask_app.py
-   ```
-
-## Project Structure
-
-```
-skillup-agent/
-├── config/           # Configuration settings
-├── database/         # Firestore client
-├── agents/           # Three AI agents
-├── tools/            # MCP tools, external APIs
-├── utils/            # Logging, validators
-├── api/              # Flask endpoints
-├── static/           # CSS, JavaScript
-├── templates/        # HTML templates
-└── requirements.txt  # Python dependencies
+```bash
+git clone https://github.com/Vipul-Intellect/Skillyfy-Agent.git
+cd multi-agent
+pip install -r requirements.txt
 ```
 
-## API Endpoints
+### Configure
 
-- POST /api/trending-skills - Get trending tech skills
-- POST /api/analyze-resume - Analyze uploaded resume
-- POST /api/recommend-skills - Get skill recommendations
-- POST /api/assess-level - User level assessment
-- POST /api/generate-schedule - Create learning schedule
-- POST /api/get-videos - Fetch learning videos
-- POST /api/run-code - Execute code practice
-- POST /api/get-hint - Get Socratic hints
-- POST /api/evaluate - Final evaluation
-- POST /api/get-jobs - Fetch job matches
+```bash
+cp .env.example .env
+# Fill in the required API keys
+gcloud auth application-default login
+```
 
-## Features
+### Run locally
 
-- Trending skills discovery (Gemini)
-- Resume analysis (PDF, text, image, URL)
-- Smart skill gap recommendations
-- Adaptive level assessment
-- User-controlled scheduling
-- Video curation (12 master channels)
-- Coding practice (Judge0)
-- Socratic AI assistant
-- Final evaluation with badge
-- Real job matching (10 jobs)
+```bash
+python api/flask_app.py
+```
 
-## Development
+### Deploy to Cloud Run
 
-Built for Google GenAI APAC 2026 Hackathon.
+```bash
+gcloud run deploy skillyfy-main \
+  --source . \
+  --region asia-south1 \
+  --allow-unauthenticated \
+  --min-instances 0
+```
+
+## Notes
+
+- The main user flow is API-driven through the Flask app
+- Agent coordination exists through the A2A layer, while tool execution flows through MCP
+- The executor service is separated from the main app so code execution can be isolated from UI and orchestration concerns
 
 ## License
 
